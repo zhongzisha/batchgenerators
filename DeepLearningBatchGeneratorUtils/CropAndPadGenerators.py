@@ -165,3 +165,47 @@ def pad_generator(generator, new_size, pad_value_data=None, pad_value_seg=None):
             data_dict["seg"] = res_seg
         data_dict["data"] = res_data
         yield data_dict
+
+
+    def class_patch_crop_generator(generator, patch_size=32):
+        '''
+       samples random patches from an image that contain at least one pixel of a region of interest (seg!=0).
+       '''
+
+        for data_dict in generator:
+
+            seg = data_dict['seg']
+            data = data_dict['data']
+
+            for b in range(seg.shape[0]):
+
+                ixs = np.argwhere(seg[b]!=0)
+                sampled_roi_coord = ixs[np.random.choice(ixs.shape[0])]
+                sampled_grid_coord = [np.random.choice(patch_size), np.random.choice(patch_size)]
+
+                xmin = sampled_roi_coord[1] - sampled_grid_coord[0]
+                ymin = sampled_roi_coord[2] - sampled_grid_coord[1]
+                xmax = xmin + patch_size
+                ymax = ymin + patch_size
+
+                if xmin < 0:
+                    xmin += abs(xmin)
+                    xmax += abs(xmin)
+                if ymin < 0:
+                    ymin += abs(ymin)
+                    ymax += abs(ymin)
+                if xmax > data.shape[2]:
+                    xmin -= xmax - data.shape[2]
+                    xmax -= xmax - data.shape[2]
+                if ymax > data.shape[3]:
+                    ymin -= ymax-data.shape[3]
+                    ymax -= ymax-data.shape[3]
+
+                seg[b] = seg[b, :, xmin:xmax, ymin:ymax]
+                data[b] = data[b, :, xmin:xmax, ymin:ymax]
+
+
+            data_dict['data'] = data
+            data_dict['seg'] = seg
+
+            yield data_dict
