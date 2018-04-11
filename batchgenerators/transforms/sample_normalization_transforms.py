@@ -29,15 +29,16 @@ class RangeTransform(AbstractTransform):
 
     '''
 
-    def __init__(self, rnge=(0, 1), per_channel=True, data_key="data", label_key="seg"):
+    def __init__(self, rnge=(0, 1), per_channel=True, per_batch=True, data_key="data", label_key="seg"):
         self.data_key = data_key
         self.label_key = label_key
         self.per_channel = per_channel
+        self.per_batch = per_batch
         self.rnge = rnge
 
     def __call__(self, **data_dict):
         data_dict[self.data_key] = range_normalization(data_dict[self.data_key], self.rnge,
-                                                       per_channel=self.per_channel)
+                                                       per_channel=self.per_channel, per_batch=self.per_batch)
         return data_dict
 
 
