@@ -14,18 +14,34 @@
 
 import numpy as np
 
-
-def range_normalization(data, rnge=(0, 1), per_channel=True, per_batch=True):
-    if per_batch:
-        for b in range(data.shape[0]):
-            if per_channel:
-                for c in range(data.shape[1]):
+def range_normalization(data, rnge=(0, 1), per_channel=True, masked=False):
+    if masked:
+        mask = data != 0
+    for b in range(data.shape[0]):
+        if per_channel:
+            for c in range(data.shape[1]):
+                if masked:
+                    mn = data[b, c][mask[b, c]].min()
+                    mx = data[b, c][mask[b, c]].max()
+                    data[b, c][mask[b, c]] -= mn
+                    data[b, c][mask[b, c]] /= (mx - mn)
+                    data[b, c][mask[b, c]] *= (rnge[1] - rnge[0])
+                    data[b, c][mask[b, c]] += rnge[0]
+                else:
                     mn = data[b, c].min()
                     mx = data[b, c].max()
                     data[b, c] -= mn
                     data[b, c] /= (mx - mn)
                     data[b, c] *= (rnge[1] - rnge[0])
                     data[b, c] += rnge[0]
+        else:
+            if masked:
+                mn = data[b][mask[b]].min()
+                mx = data[b].max()
+                data[b][mask[b]] -= mn
+                data[b][mask[b]] /= (mx - mn)
+                data[b][mask[b]] *= (rnge[1] - rnge[0])
+                data[b][mask[b]] += rnge[0]
             else:
                 mn = data[b].min()
                 mx = data[b].max()
@@ -33,22 +49,6 @@ def range_normalization(data, rnge=(0, 1), per_channel=True, per_batch=True):
                 data[b] /= (mx - mn)
                 data[b] *= (rnge[1] - rnge[0])
                 data[b] += rnge[0]
-    else:
-        if per_channel:
-            for c in range(data.shape[1]):
-                mn = data[:, c].min()
-                mx = data[:, c].max()
-                data[:, c] -= mn
-                data[:, c] /= (mx - mn)
-                data[:, c] *= (rnge[1] - rnge[0])
-                data[:, c] += rnge[0]
-        else:
-            mn = data.min()
-            mx = data.max()
-            data -= mn
-            data /= (mx - mn)
-            data *= (rnge[1] - rnge[0])
-            data += rnge[0]
     return data
 
 
