@@ -14,6 +14,13 @@
 
 import numpy as np
 
+
+def range_clip(data, rnge=(0, 1)):
+    data[data < rnge[0]] = rnge[0]
+    data[data > rnge[1]] = rnge[1]
+    return data
+
+
 def range_normalization(data, rnge=(0, 1), per_channel=True, masked=False):
     if masked:
         mask = data != 0

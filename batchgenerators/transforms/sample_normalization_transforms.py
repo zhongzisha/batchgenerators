@@ -14,9 +14,27 @@
 
 
 from batchgenerators.augmentations.normalizations import cut_off_outliers, mean_std_normalization, range_normalization, \
-    zero_mean_unit_variance_normalization
+    zero_mean_unit_variance_normalization, range_clip
 from batchgenerators.transforms.abstract_transforms import AbstractTransform
 import numpy as np
+
+
+class RangeClipTransform(AbstractTransform):
+    """Clips values to specified range.
+
+    Args:
+        rnge (tuple): Range to which data is clipped
+    """
+
+    def __init__(self, rnge=(0, 1), data_key="data", label_key="seg"):
+        self.data_key = data_key
+        self.label_key = label_key
+        self.rnge = rnge
+
+    def __call__(self, **data_dict):
+        data_dict[self.data_key] = range_clip(data_dict[self.data_key], self.rnge)
+        return data_dict
+
 
 class RangeTransform(AbstractTransform):
     '''Rescales data into the specified range
