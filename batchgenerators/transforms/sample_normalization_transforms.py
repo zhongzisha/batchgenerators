@@ -33,7 +33,6 @@ class RangeTransform(AbstractTransform):
         self.data_key = data_key
         self.label_key = label_key
         self.per_channel = per_channel
-        self.per_batch = per_batch
         self.rnge = rnge
         self.masked = masked
 
