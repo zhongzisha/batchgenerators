@@ -2,7 +2,7 @@ from .abstract_transforms import AbstractTransform, Compose, RndTransform
 from .channel_selection_transforms import DataChannelSelectionTransform, SegChannelSelectionTransform
 from .color_transforms import BrightnessMultiplicativeTransform, BrightnessTransform, ContrastAugmentationTransform, \
     FancyColorTransform, GammaTransform, IlluminationTransform
-from .crop_and_pad_transforms import CenterCropSegTransform, CenterCropTransform, PadTransform, RandomCropTransform
+from .crop_and_pad_transforms import CenterCropSegTransform, CenterCropTransform, PadTransform, RandomCropTransform, PadToMultipleTransform
 from .noise_transforms import GaussianBlurTransform, GaussianNoiseTransform
 from .sample_normalization_transforms import CutOffOutliersTransform, RangeTransform, ZeroMeanUnitVarianceTransform, RangeClipTransform
 
