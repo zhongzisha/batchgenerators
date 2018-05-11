@@ -70,17 +70,22 @@ class ConvertSegToOnehotTransform(AbstractTransform):
         other existing seg channels. Therefore you have the option to change that. BEWARE: Any non-'seg' segmentations
         will not be augmented anymore. Use this only at the very end of your pipeline!
     """
-    def __init__(self, classes, seg_channel=0, output_key="seg"):
+
+    def __init__(self, classes, seg_channels=0, output_key="seg"):
         self.output_key = output_key
-        self.seg_channel = seg_channel
+        if type(seg_channels) == int:
+            self.seg_channels = [seg_channels]
+        else:
+            self.seg_channels = seg_channels
         self.classes = classes
 
     def __call__(self, **data_dict):
         seg = data_dict.get("seg")
         if seg is not None:
-            new_seg = np.zeros([seg.shape[0], len(self.classes)] + list(seg.shape[2:]), dtype=seg.dtype)
+            new_seg = np.zeros([seg.shape[0], len(self.classes) * len(self.seg_channels)] + list(seg.shape[2:]), dtype=seg.dtype)
             for b in range(seg.shape[0]):
-                new_seg[b] = convert_seg_image_to_one_hot_encoding(seg[b, self.seg_channel], self.classes)
+                for c, channel in enumerate(self.seg_channels):
+                    new_seg[b][c*len(self.classes):(c+1)*len(self.classes)] = convert_seg_image_to_one_hot_encoding(seg[b, channel], self.classes)
             data_dict[self.output_key] = new_seg
         else:
             from warnings import warn
