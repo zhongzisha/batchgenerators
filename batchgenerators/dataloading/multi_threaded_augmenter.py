@@ -24,7 +24,7 @@ from multiprocessing import Process
 from multiprocessing import Queue as MPQueue
 import numpy as np
 import sys
-import logging
+# import logging
 from multiprocessing import Pool
 
 
@@ -82,20 +82,20 @@ class MultiThreadedAugmenter(object):
             while item == "end":
                 self._end_ctr += 1
                 if self._end_ctr == self.num_processes:
-                    logging.debug("MultiThreadedGenerator: finished data generation")
+                    # logging.debug("MultiThreadedGenerator: finished data generation")
                     self._finish()
                     raise StopIteration
 
                 item = self._queues[self._next_queue()].get()
             return item
         except KeyboardInterrupt:
-            logging.error("MultiThreadedGenerator: caught exception: {}".format(sys.exc_info()))
+            # logging.error("MultiThreadedGenerator: caught exception: {}".format(sys.exc_info()))
             self._finish()
             raise KeyboardInterrupt
 
     def _start(self):
         if len(self._threads) == 0:
-            logging.debug("starting workers")
+            # logging.debug("starting workers")
             self._queue_loop = 0
             self._end_ctr = 0
 
@@ -113,11 +113,12 @@ class MultiThreadedAugmenter(object):
                 self._threads[-1].daemon = True
                 self._threads[-1].start()
         else:
-            logging.debug("MultiThreadedGenerator Warning: start() has been called but workers are already running")
+            pass
+            # logging.debug("MultiThreadedGenerator Warning: start() has been called but workers are already running")
 
     def _finish(self):
         if len(self._threads) != 0:
-            logging.debug("MultiThreadedGenerator: workers terminated")
+            # logging.debug("MultiThreadedGenerator: workers terminated")
             for i, thread in enumerate(self._threads):
                 thread.terminate()
                 self._queues[i].close()
@@ -132,7 +133,7 @@ class MultiThreadedAugmenter(object):
         self._start()
 
     def __del__(self):
-        logging.debug("MultiThreadedGenerator: destructor was called")
+        # logging.debug("MultiThreadedGenerator: destructor was called")
         self._finish()
 
 
