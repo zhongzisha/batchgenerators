@@ -137,95 +137,329 @@ class MultiThreadedAugmenter(object):
         self._finish()
 
 
+class TransformAdapter(object):
+    def __init__(self, transform):
+        self.transform = transform
+
+    def __call__(self, data_dict):
+        return self.transform(**data_dict)
+
+
+class ProcessTerminateOnJoin(Process):
+    def join(self, timeout=None):
+        self.terminate()
+        super(ProcessTerminateOnJoin, self).join(0.01)
+
+
+def default_joiner(items):
+    keys = items[0].keys()
+    res = {}
+    for k in keys:
+        c = []
+        for i in items:
+            c.append(i[k])
+        if isinstance(items[0][k], np.ndarray):
+            res[k] = np.vstack(c)
+        elif isinstance(items[0][k], list):
+            res[k] = c
+        elif isinstance(items[0][k], tuple):
+            res[k] = tuple(c)
+        else:
+            raise ValueError("don't know how to join instances of %s to a batch"%str(type(items[0][k])))
+    return res
+
+
 class ProperMultiThreadedAugmenter(object):
-    def __init__(self, dataloader, num_processes, num_cached, batch_size, transform, seeds=None):
-        raise NotImplementedError("Work in progress, do not use! It does not work")
+    def __init__(self, dataloader, num_processes, num_raw_cached, num_transformed_cached, batch_size, transform, batch_joiner=default_joiner, seeds=None, verbose=False):
+        self.verbose = verbose
+        self.batch_joiner = batch_joiner
+        self.num_transformed_cached = num_transformed_cached
+        self.num_raw_cached = num_raw_cached
         self.transform = transform
         self.batch_size = batch_size
-        self.num_cached = num_cached
         self.dataloader = dataloader
         self.num_processes = num_processes
         if seeds is None:
             seeds = [np.random.randint(999999) for i in range(num_processes)]
         self.seeds = seeds # TODO
         assert self.dataloader.BATCH_SIZE == 1, "batch size of dataloader must be 1!"
+        self.was_started = False
         self.sample_generating_process = None
-        self.transformed_queue_filler = None
+        self.sample_queue = None
+        self.transformed_queue = None
 
     def start(self):
-        def sample_producer(queue, data_loader):
-            try:
-                for item in data_loader:
-                    queue.put(item)
-                queue.put("end")
-            except KeyboardInterrupt:
-                queue.put("end")
+        print("started")
 
-        self.sample_queue = MPQueue(self.num_cached)
-        self.sample_generating_process = Process(target=sample_producer, args=(self.sample_queue, self.dataloader))
+        def producer(target_queues, data_loader):
+            num_queues = len(target_queues)
+            ctr = 0
+            for item in data_loader:
+                q = ctr % num_queues
+                print("producer_queue: ", q)
+                target_queues[q].put(item)
+                ctr += 1
+            [target_queue.put("end") for target_queue in target_queues]
+
+        def transformer(target_queue, source_queue, transform, seed):
+            np.random.seed(seed)
+            item = source_queue.get()
+            while item != "end":
+                target_queue.put(transform(**item))
+                item = source_queue.get()
+            target_queue.put("end")
+
+        def joiner(transformed_queues, ready_queues, join_method, batch_size):
+            # collects and joins samples to batches
+            stop = False
+            num_queues = len(transformed_queues)
+            ctr = 0
+            num_rdy = len(ready_queues)
+            rdy_ctr = 0
+            while not stop:
+                items = []
+                for _ in range(batch_size):
+                    q = ctr % num_queues
+                    print("joiner_source_queue: ", q)
+                    item = transformed_queues[q].get()
+                    ctr += 1
+                    if item == "end":
+                        stop = True
+                        break
+                    items.append(item)
+                if stop:
+                    break
+                else:
+                    joined = join_method(items)
+                    rdy_q = rdy_ctr % num_rdy
+                    ready_queues[rdy_q].put(joined)
+                    rdy_ctr += 1
+            [ready_queue.put("end") for ready_queue in ready_queues]
+
+        self.sample_queues = [MPQueue(2) for i in range(self.num_processes)]
+        self.transformed_queues = [MPQueue(2) for i in range(self.num_processes)]
+        self.ready_queues = [MPQueue(2) for i in range(2)]
+
+        self.sample_generating_process = ProcessTerminateOnJoin(target=producer, args=(self.sample_queues, self.dataloader))
+        self.sample_generating_process.daemon = True
         self.sample_generating_process.start()
 
-        self.transformed_queue = MPQueue(self.num_cached)
+        self.joining_process = ProcessTerminateOnJoin(target=joiner, args=(self.transformed_queues, self.ready_queues, self.batch_joiner, self.batch_size))
+        self.joining_process.daemon = True
+        self.joining_process.start()
 
-        def fill_transform_queue(sample_queue, transform, target_queue, batch_size, num_processes):
-            pool = Pool(num_processes)
-            try:
-                stop = False
-                while not stop:
-                    items = []
-                    for i in range(batch_size):
-                        item = sample_queue.get()
-                        if item == "end":
-                            stop = True
-                            target_queue.put("end")
-                            break
-                        items.append(item)
-                    if stop:
-                        target_queue.put("end")
-                        continue
-                    transformed = [pool.apply(transform, kwds=items[i]) for i in range(batch_size)]
-                    target_queue.put(transformed)
-            except Exception:
-                pool.terminate()
-                raise Exception
+        self.q_ctr = 0
 
-        self.transformed_queue_filler = Process(target=fill_transform_queue, args=(self.sample_queue, self.transform,
-                                                                                   self.transformed_queue,
-                                                                                   self.batch_size, self.num_processes))
-        self.transformed_queue_filler.start()
+        self.transformers = []
+        for i in range(self.num_processes):
+            p = ProcessTerminateOnJoin(target=transformer, args=(self.transformed_queues[i], self.sample_queues[i], self.transform, self.seeds[i]))
+            p.daemon = True
+            p.start()
+            self.transformers.append(p)
+
+        self.was_started = True
 
     def __next__(self):
-        if not (isinstance(self.transformed_queue_filler, Process) and self.transformed_queue_filler.is_alive() and
-                isinstance(self.sample_generating_process, Process) and self.sample_generating_process.is_alive()):
+        if not self.was_started:
             self.start()
-        item = self.transformed_queue.get()
+        #if self.verbose:
+        #    print("samples in raw queue:", self.sample_queue.qsize(), "  samples in transformed queue:",
+        #          self.transformed_queue.qsize(), "  batches in ready queue:", self.ready_queue.qsize())
+        item = self.ready_queues[self.q_ctr % len(self.ready_queues)].get()
+        self.q_ctr += 1
         if item == "end":
             raise StopIteration
-        return self.dataloader.join(item)
+        return item
+
+    def __del__(self):
+        self.sample_generating_process.join()
+        self.joining_process.join()
+        [i.join() for i in self.transformers]
+
+
+class ProperMultiThreadedAugmenterUnordered(object):
+    def __init__(self, dataloader, num_processes, num_raw_cached, num_transformed_cached, batch_size, transform, batch_joiner=default_joiner, seeds=None, verbose=False):
+        self.verbose = verbose
+        self.batch_joiner = batch_joiner
+        self.num_transformed_cached = num_transformed_cached
+        self.num_raw_cached = num_raw_cached
+        self.transform = transform
+        self.batch_size = batch_size
+        self.dataloader = dataloader
+        self.num_processes = num_processes
+        if seeds is None:
+            seeds = [np.random.randint(999999) for i in range(num_processes)]
+        self.seeds = seeds # TODO
+        assert self.dataloader.BATCH_SIZE == 1, "batch size of dataloader must be 1!"
+        self.was_started = False
+        self.sample_generating_process = None
+        self.sample_queue = None
+        self.transformed_queue = None
+
+    def start(self):
+        print("started")
+
+        def producer(target_queues, data_loader):
+            num_queues = len(target_queues)
+            ctr = 0
+            for item in data_loader:
+                q = ctr % num_queues
+                print("producer_queue: ", q)
+                target_queues[q].put(item)
+                ctr += 1
+            [target_queue.put("end") for target_queue in target_queues]
+
+        def transformer(target_queue, source_queue, transform, seed):
+            np.random.seed(seed)
+            item = source_queue.get()
+            while item != "end":
+                target_queue.put(transform(**item))
+                item = source_queue.get()
+            target_queue.put("end")
+
+        def joiner(transformed_queues, ready_queues, join_method, batch_size):
+            # collects and joins samples to batches
+            stop = False
+            num_queues = len(transformed_queues)
+            ctr = 0
+            num_rdy = len(ready_queues)
+            rdy_ctr = 0
+            while not stop:
+                items = []
+                for _ in range(batch_size):
+                    q = ctr % num_queues
+                    print("joiner_source_queue: ", q)
+                    item = transformed_queues[q].get()
+                    ctr += 1
+                    if item == "end":
+                        stop = True
+                        break
+                    items.append(item)
+                if stop:
+                    break
+                else:
+                    joined = join_method(items)
+                    rdy_q = rdy_ctr % num_rdy
+                    ready_queues[rdy_q].put(joined)
+                    rdy_ctr += 1
+            [ready_queue.put("end") for ready_queue in ready_queues]
+
+        self.sample_queues = [MPQueue(3) for i in range(self.num_processes)]
+        self.transformed_queues = [MPQueue(3) for i in range(self.num_processes)]
+        self.ready_queues = [MPQueue(2) for i in range(2)]
+
+        self.sample_generating_process = ProcessTerminateOnJoin(target=producer, args=(self.sample_queues, self.dataloader))
+        self.sample_generating_process.daemon = True
+        self.sample_generating_process.start()
+
+        self.joiners = []
+        for i in range(2):
+            p = ProcessTerminateOnJoin(target=joiner, args=(self.transformed_queues[i::2],
+                                                            (self.ready_queues[i], ),
+                                                            self.batch_joiner,
+                                                            self.batch_size))
+            p.daemon = True
+            p.start()
+            self.joiners.append(p)
+
+        self.q_ctr = 0
+
+        self.transformers = []
+        for i in range(self.num_processes):
+            p = ProcessTerminateOnJoin(target=transformer, args=(self.transformed_queues[i], self.sample_queues[i], self.transform, self.seeds[i]))
+            p.daemon = True
+            p.start()
+            self.transformers.append(p)
+
+        self.was_started = True
+
+    def __next__(self):
+        if not self.was_started:
+            self.start()
+        #if self.verbose:
+        #    print("samples in raw queue:", self.sample_queue.qsize(), "  samples in transformed queue:",
+        #          self.transformed_queue.qsize(), "  batches in ready queue:", self.ready_queue.qsize())
+        item = self.ready_queues[self.q_ctr % len(self.ready_queues)].get()
+        self.q_ctr += 1
+        if item == "end":
+            raise StopIteration
+        return item
+
+    def __del__(self):
+        self.sample_generating_process.join()
+        [i.join() for i in self.transformers]
+        [i.join() for i in self.joiners]
 
 
 if __name__ == "__main__":
-    class Dataloader(object):
-        def __init__(self):
-            self.BATCH_SIZE = 1
-            self.ctr = 0
+    # ignore this code. this is work in progress
+    from Datasets.Brain_Tumor_450k_new import load_dataset_noCutOff, BatchGenerator3D_random_sampling
+    dataset = load_dataset_noCutOff()
+    dl = BatchGenerator3D_random_sampling(dataset, 1, None, None)
+    #tr = GaussianBlurTransform(3)
+    tr = SpatialTransform((128, 128, 128), (64, 64, 64), False, do_rotation=False, do_scale=True, scale=(0.6,0.60000001))
+    from time import time
 
-        def __next__(self):
-            self.ctr += 1
-            return {"ctr":self.ctr}
+    dl = BatchGenerator3D_random_sampling(dataset, 2, None, None)
+    mt = MultiThreadedAugmenter(dl, tr, 6, 2)
 
-        def __iter__(self):
-            return self
+    # warm up
+    warum_up_times_old = []
+    for _ in range(6):
+        a = time()
+        b = next(mt)
+        warum_up_times_old.append(time() - a)
 
-        @staticmethod
-        def join(items):
-            return {"ctrs":[i['ctr'] for i in items]}
+    start = time()
+    times_old = []
+    for _ in range(40):
+        a = time()
+        b = next(mt)
+        times_old.append(time() - a)
+    end = time()
+    time_old = end - start
 
-    class Transform():
-        def __call__(self, **dct):
-            dct['ctr'] /= 10
-            return dct
+    dl = BatchGenerator3D_random_sampling(dataset, 1, None, None)
+    mt = ProperMultiThreadedAugmenter(dl, 6, 3, 6, 2, tr, verbose=True)
 
-    dl = Dataloader()
-    tr = Transform()
-    mt = ProperMultiThreadedAugmenter(dl, 2, 2, 3, tr, None)
+    # warm up
+    warum_up_times_new5 = []
+    for _ in range(6):
+        a = time()
+        b = next(mt)
+        warum_up_times_new5.append(time() - a)
+
+    start = time()
+    times_new5 = []
+    for _ in range(40):
+        a = time()
+        b = next(mt)
+        times_new5.append(time() - a)
+    end = time()
+    time_new5 = end - start
+
+    dl = BatchGenerator3D_random_sampling(dataset, 1, None, None)
+    mt = ProperMultiThreadedAugmenterUnordered(dl, 6, 3, 6, 2, tr, verbose=True)
+
+    # warm up
+    warum_up_times_new6 = []
+    for _ in range(6):
+        a = time()
+        b = next(mt)
+        warum_up_times_new6.append(time() - a)
+
+    start = time()
+    times_new6 = []
+    for _ in range(40):
+        a = time()
+        b = next(mt)
+        times_new6.append(time() - a)
+    end = time()
+    time_new6 = end - start
+
+    plt.ion()
+    plt.plot(range(len(times_old)), times_old, color="r", ls="-")
+    plt.plot(range(len(times_new5)), times_new5, color="black", ls="-")
+    plt.plot(range(len(times_new6)), times_new6, color="blue", ls="-")
+    plt.title("time per example")
+    plt.legend(["old, total: %f s" % time_old, "new, total: %f s" % time_new5, "new unordered, total: %f s" % time_new6])
