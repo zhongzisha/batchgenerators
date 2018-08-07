@@ -95,8 +95,15 @@ def uncenter_coords(coords):
     return coords
 
 
-def interpolate_img(img, coords, order=3, mode='nearest', cval=0.0):
-    return map_coordinates(img, coords, order=order, mode=mode, cval=cval)
+def interpolate_img(img, coords, order=3, mode='nearest', cval=0.0, is_seg=False):
+    if is_seg and order != 0:
+        unique_labels = np.unique(img)
+        result = np.zeros([len(unique_labels)] + list(coords.shape[1:]), img.dtype)
+        for i, c in enumerate(unique_labels):
+            result[i] = map_coordinates((img == c).astype(float), coords, order=order, mode=mode, cval=cval)
+        return unique_labels[result.argmax(0)]
+    else:
+        return map_coordinates(img.astype(float), coords, order=order, mode=mode, cval=cval).astype(img.dtype)
 
 
 def generate_noise(shape, alpha, sigma):
@@ -433,39 +440,59 @@ def general_cc_var_num_channels(img, diff_order=0, mink_norm=1, sigma=1, mask_im
     return white_colors, output_img
 
 
-def convert_seg_to_bounding_box_coordinates(seg, class_target, pid, dim, n_max_gt=3):
+def convert_seg_to_bounding_box_coordinates(data_dict, dim, get_rois_from_seg=False):
 
-        bb_target = np.zeros((seg.shape[0], n_max_gt, dim*2)) #for whole batch or single patient?
-        roi_shape = [seg.shape[0], n_max_gt, seg.shape[2], seg.shape[3]]
-        if dim == 3:
-            roi_shape.append(seg.shape[4])
-        roi_masks = np.zeros(roi_shape)
-        roi_class_ids = np.zeros((seg.shape[0], n_max_gt, 1))
-        for b in range(seg.shape[0]):
 
-            if np.sum(seg!=0) > 0:
-                clusters, n_cands = lb(seg[b])
-                rois = np.array([(clusters == ii) * 1 for ii in range(1, n_cands + 1)])  # separate clusters and concat
-                rois = rois[:n_max_gt] #cut clutter out to save memory
+
+        bb_target = []
+        roi_masks = []
+        roi_labels = []
+
+        for b in range(data_dict['seg'].shape[0]):
+
+            p_coords_list = []
+            p_roi_masks_list = []
+            p_roi_labels_list = []
+
+            if np.sum(data_dict['seg'][b]!=0) > 0:
+                if get_rois_from_seg:
+                    clusters, n_cands = lb(data_dict['seg'][b])
+                    data_dict['class_target'][b] = [data_dict['class_target'][b] + 1] * n_cands
+                else:
+                    n_cands = int(np.max(data_dict['seg'][b]))
+
+                rois = np.array([(data_dict['seg'][b] == ii) * 1 for ii in range(1, n_cands + 1)])  # separate clusters and concat
+                # rois = rois[:n_max_gt] #cut clutter out to save memory
                 # print("Rois in transformer", rois.shape, pid[b])
                 for rix, r in enumerate(rois):
-                    seg_ixs = np.argwhere(r != 0)
-                    coord_list = [np.min(seg_ixs[:, 2])-1, np.min(seg_ixs[:, 1])-1, np.max(seg_ixs[:, 2])+1,
-                                     np.max(seg_ixs[:, 1])+1]
-                    if dim == 3:
+                    if np.sum(r !=0) > 0: #check if the lesion survived data augmentation
+                        seg_ixs = np.argwhere(r != 0)
+                        coord_list = [np.min(seg_ixs[:, 1])-1, np.min(seg_ixs[:, 2])-1, np.max(seg_ixs[:, 1])+1,
+                                         np.max(seg_ixs[:, 2])+1]
+                        if dim == 3:
 
-                        coord_list.extend([np.min(seg_ixs[:, 3])-1, np.max(seg_ixs[:, 3])+1])
+                            coord_list.extend([np.min(seg_ixs[:, 3])-1, np.max(seg_ixs[:, 3])+1])
 
-                    bb_target[b, rix] = coord_list
-                    roi_masks[b, rix] = r
-                    roi_class_ids[b, rix] = class_target[b] + 1 # add background class
+                        p_coords_list.append(coord_list)
+                        p_roi_masks_list.append(r)
+                        # p_roi_labels_list.append(data_dict['class_target'][b] + 1) #include background. TODO BREAST
+                        p_roi_labels_list.append(data_dict['class_target'][b][rix]) #include background.
 
-                # print("CHECK BBTARGET", bb_target[b], roi_masks[b].shape, roi_class_ids[b], pid[b])
+                bb_target.append(np.array(p_coords_list))
+                roi_masks.append(np.array(p_roi_masks_list))
+                roi_labels.append(np.array(p_roi_labels_list))
+
+
             else:
-                print("fail: bb kicked out of image by data augmentation", np.sum(seg!=0), pid[b], class_target)
+                bb_target.append([])
+                roi_masks.append(np.zeros_like(data_dict['seg'][b])[None])
+                roi_labels.append(np.array([-1]))
 
+        if get_rois_from_seg:
+            data_dict.pop('class_target', None)
 
-        return bb_target, roi_masks, roi_class_ids
+        return np.array(bb_target), np.array(roi_masks), np.array(roi_labels)
+
 
 
 def transpose_channels(batch):
@@ -477,7 +504,7 @@ def transpose_channels(batch):
         raise ValueError("wrong dimensions in transpose_channel generator!")
 
 
-def resize_segmentation(segmentation, new_shape, order=3):
+def resize_segmentation(segmentation, new_shape, order=3, cval=0):
     '''
     Resizes a segmentation map. Supports all orders (see skimage documentation). Will transform segmentation map to one
     hot encoding which is resized and transformed back to a segmentation map.
@@ -487,17 +514,18 @@ def resize_segmentation(segmentation, new_shape, order=3):
     :param order:
     :return:
     '''
+    tpe = segmentation.dtype
     unique_labels = np.unique(segmentation)
     assert len(segmentation.shape) == len(new_shape), "new shape must have same dimensionality as segmentation"
     if order == 0:
-        return resize(segmentation, new_shape, order, mode="constant", cval=0, clip=True)
+        return resize(segmentation, new_shape, order, mode="constant", cval=cval, clip=True).astype(tpe)
     else:
         reshaped_multihot = np.zeros([len(unique_labels)] + list(new_shape), dtype=float)
         for i, c in enumerate(unique_labels):
             reshaped_multihot[i] = np.round(
-                resize((segmentation == c).astype(float), new_shape, order, mode="constant", cval=0, clip=True))
+                resize((segmentation == c).astype(float), new_shape, order, mode="constant", cval=cval, clip=True))
         reshaped = unique_labels[np.argmax(reshaped_multihot, 0)].astype(segmentation.dtype)
-        return reshaped
+        return reshaped.astype(tpe)
 
 
 def resize_softmax_output(softmax_output, new_shape, order=3):
@@ -509,11 +537,12 @@ def resize_softmax_output(softmax_output, new_shape, order=3):
     :param order:
     :return:
     '''
+    tpe = softmax_output.dtype
     new_shp = [softmax_output.shape[0]] + list(new_shape)
     result = np.zeros(new_shp, dtype=softmax_output.dtype)
     for i in range(softmax_output.shape[0]):
         result[i] = resize(softmax_output[i].astype(float), new_shape, order, "constant", 0, True)
-    return result
+    return result.astype(tpe)
 
 
 def get_range_val(value, rnd_type="uniform"):
