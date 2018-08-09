@@ -393,10 +393,4 @@ if __name__ == "__main__":
     plt.plot(range(len(times_old)), times_old, color="r", ls="-")
     plt.plot(range(len(times_new5)), times_new5, color="black", ls="-")
     plt.title("time per example")
-<<<<<<< HEAD
-    plt.legend(["old, total: %f s" % time_old, "new, total: %f s" % time_new5, "new unordered, total: %f s" % time_new6])
-=======
     plt.legend(["old, total: %f s" % time_old, "new, total: %f s" % time_new5])
-
-
->>>>>>> master
