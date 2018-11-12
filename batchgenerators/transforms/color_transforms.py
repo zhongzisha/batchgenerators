@@ -156,7 +156,7 @@ class ColorClipTransform(AbstractTransform):
         self.max = max
 
     def __call__(self, **data_dict):
-        data_dict[self.data_key] = np.clip(data_dict[self.data_key], self.min, self.max)
+        data_dict[self.data_key] = np.clip(a=data_dict[self.data_key], a_min=self.min, a_max=self.max)
         return data_dict
 
 

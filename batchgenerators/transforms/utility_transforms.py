@@ -36,7 +36,7 @@ class NumpyToTensor(AbstractTransform):
 
         for key, val in data_dict.items():
             if isinstance(val, np.ndarray):
-                data_dict[key] = torch.from_numpy(val)
+                data_dict[key] = torch.from_numpy(val.astype(np.float))
 
         return data_dict
 

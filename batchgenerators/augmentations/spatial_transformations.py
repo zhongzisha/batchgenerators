@@ -43,9 +43,8 @@ def augment_resize(data, target_size, order=3, seg=None):
     if isinstance(target_size, (list, tuple)):
         target_size = [-1] * (len(data_shape)-1-len(target_size)) + list(target_size)
 
-
     if not is_list:
-        zoom_factors = np.concatenate((data.shape[:1], np.asarray(data.shape[1:]) / target_size))
+        zoom_factors = np.concatenate(([1],  target_size / np.asarray(data.shape[1:])))
         data_return = zoom(data, zoom=zoom_factors, order=order)
         seg_return = None
         if seg is not None:
