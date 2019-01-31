@@ -15,6 +15,7 @@
 
 from __future__ import print_function
 from warnings import warn
+from batchgenerators.dataloading.producer_and_pin_memory_loop import pin_memory_loop, producer
 from future import standard_library
 import threading
 standard_library.install_aliases()
@@ -26,78 +27,8 @@ import numpy as np
 import sys
 import logging
 from multiprocessing import Event
-from queue import Empty, Full
-import traceback
+from queue import Empty
 from time import sleep
-
-
-
-def producer(queue, data_loader, transform, thread_id, seed, abort_event):
-    try:
-        np.random.seed(seed)
-        data_loader.set_thread_id(thread_id)
-        item = None
-
-        while True:
-            # check if abort event was set
-            if not abort_event.is_set():
-
-                if item is None:
-
-                    try:
-                        item = next(data_loader)
-                        if transform is not None:
-                            item = transform(**item)
-                    except StopIteration:
-                        item = "end"
-
-                try:
-                    queue.put(item, timeout=2)
-                    item = None
-                except Full:
-                    # queue was full because items in it were not consumed. Try again.
-                    pass
-            else:
-                # abort_event was set. Drain queue, then give 'end'
-                break
-
-    except KeyboardInterrupt:
-        # drain queue, then give 'end', set abort flag and reraise KeyboardInterrupt
-        abort_event.set()
-
-        raise KeyboardInterrupt
-
-    except Exception:
-        print("Exception in worker", thread_id)
-        traceback.print_exc()
-        # drain queue, give 'end', send abort_event so that other workers know to exit
-
-        abort_event.set()
-
-
-def pin_memory_loop(in_queues, out_queue, abort_event):
-    import torch
-    queue_ctr = 0
-    item = None
-    while True:
-        try:
-            if not abort_event.is_set():
-                if item is None:
-                    item = in_queues[queue_ctr % len(in_queues)].get(timeout=1)
-                    if isinstance(item, dict):
-                        for k in item.keys():
-                            if isinstance(item[k], torch.Tensor):
-                                item[k] = item[k].pin_memory()
-                    queue_ctr += 1
-                out_queue.put(item, timeout=1)
-                item = None
-            else:
-                print('pin_memory_loop exiting...')
-                break
-        except Empty:
-            pass
-        except Full:
-            pass
 
 
 class MultiThreadedAugmenter(object):
@@ -413,93 +344,5 @@ class AlternativeMultiThreadedAugmenter(object):
         self.sample_generating_process.join()
         self.joining_process.join()
         [i.join() for i in self.transformers]
-
-
-if __name__ == "__main__":
-    from batchgenerators.dataloading import DataLoaderBase
-    from batchgenerators.transforms import SpatialTransform
-
-    class DummyDL(DataLoaderBase):
-        def __init__(self, num_threads_in_mt=8):
-            super(DummyDL, self).__init__(None, None, None, False)
-            self.num_threads_in_mt = num_threads_in_mt
-            self._data = list(range(1000))
-            self.current_position = 0
-
-        def reset(self):
-            super(DummyDL, self).reset()
-            self.current_position = self.thread_id
-
-        def generate_train_batch(self):
-            idx = self.current_position
-            if idx < len(self._data):
-                self.current_position = idx + self.num_threads_in_mt
-                return self._data[idx]
-            else:
-                raise StopIteration
-
-    dl = DummyDL(num_threads_in_mt=3)
-    mt = MultiThreadedAugmenter(dl, None, 3, 1, None)
-
-
-
-
-    # ignore this code. this is work in progress
-    from BraTS2018.dataset_loading.load_dataset import load_dataset
-    from meddec.dataloading.dataset_loading import DataLoader3D
-    import matplotlib.pyplot as plt
-    import os
-    dataset = load_dataset(os.path.join(os.environ['BraTS_2018_BASE'], "BraTS2018"))
-    dl = DataLoader3D(dataset, (128, 128, 128), (64, 64, 64), 2)
-    #tr = GaussianBlurTransform(3)
-    tr = SpatialTransform((128, 128, 128), (64, 64, 64), False, do_rotation=False, do_scale=True, scale=(0.6, 0.60000001))
-    from time import time
-
-    num_batches = 10
-    num_threads = 8
-
-    mt = MultiThreadedAugmenter(dl, tr, num_threads, 2)
-
-    # warm up
-    warum_up_times_old = []
-    for _ in range(6):
-        a = time()
-        b = next(mt)
-        warum_up_times_old.append(time() - a)
-
-    start = time()
-    times_old = []
-    for _ in range(num_batches):
-        a = time()
-        b = next(mt)
-        times_old.append(time() - a)
-    end = time()
-    time_old = end - start
-
-    dl = DataLoader3D(dataset, (128, 128, 128), (64, 64, 64), 1)
-    mt = AlternativeMultiThreadedAugmenter(dl, num_threads, 3, 6, 2, tr, verbose=True)
-
-    # warm up
-    warum_up_times_new5 = []
-    for _ in range(6):
-        a = time()
-        b = next(mt)
-        warum_up_times_new5.append(time() - a)
-
-    start = time()
-    times_new5 = []
-    for _ in range(num_batches):
-        a = time()
-        b = next(mt)
-        times_new5.append(time() - a)
-    end = time()
-    time_new5 = end - start
-
-
-    plt.ion()
-    plt.plot(range(len(times_old)), times_old, color="r", ls="-")
-    plt.plot(range(len(times_new5)), times_new5, color="black", ls="-")
-    plt.title("time per example")
-    plt.legend(["old, total: %f s" % time_old, "new, total: %f s" % time_new5])
 
 
