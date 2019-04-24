@@ -14,7 +14,7 @@
 
 
 from batchgenerators.augmentations.noise_augmentations import augment_blank_square_noise, augment_gaussian_blur, \
-    augment_gaussian_noise, augment_rician_noise
+    augment_gaussian_noise, augment_rician_noise, get_square_mask
 from batchgenerators.transforms.abstract_transforms import AbstractTransform
 
 
@@ -59,7 +59,8 @@ class GaussianNoiseTransform(AbstractTransform):
 
 
 class GaussianBlurTransform(AbstractTransform):
-    def __init__(self, blur_sigma=(1, 5), data_key="data", label_key="seg", different_sigma_per_channel=True, p_per_channel=1):
+    def __init__(self, blur_sigma=(1, 5), data_key="data", label_key="seg", different_sigma_per_channel=True,
+                 p_per_channel=1):
         """
 
         :param blur_sigma:
@@ -84,7 +85,6 @@ class GaussianBlurTransform(AbstractTransform):
 class BlankSquareNoiseTransform(AbstractTransform):
     def __init__(self, squre_size=20, n_squres=1, noise_val=(0, 0), channel_wise_n_val=False, square_pos=None,
                  data_key="data", label_key="seg"):
-
         self.data_key = data_key
         self.label_key = label_key
         self.noise_val = noise_val
@@ -96,4 +96,23 @@ class BlankSquareNoiseTransform(AbstractTransform):
     def __call__(self, **data_dict):
         data_dict[self.data_key] = augment_blank_square_noise(data_dict[self.data_key], self.squre_size, self.n_squres,
                                                               self.noise_val, self.channel_wise_n_val, self.square_pos)
+        return data_dict
+
+
+class SquareMaskTransform(AbstractTransform):
+    def __init__(self, squre_size=20, n_squres=1, noise_val=(0, 0),channel_wise_n_val=False, square_pos=None,
+                 data_key="data", target_key="mask"):
+        self.target_key = target_key
+        self.data_key = data_key
+        self.noise_val = noise_val
+        self.n_squres = n_squres
+        self.squre_size = squre_size
+        self.channel_wise_n_val = channel_wise_n_val
+        self.square_pos = square_pos
+
+    def __call__(self, **data_dict):
+        data_dict[self.target_key] = get_square_mask(data_dict[self.data_key], self.squre_size,
+                                                     self.n_squres,
+                                                     self.noise_val, self.channel_wise_n_val,
+                                                     self.square_pos)
         return data_dict
