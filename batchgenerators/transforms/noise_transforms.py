@@ -68,8 +68,6 @@ class GaussianNoiseTransform(AbstractTransform):
 class GaussianBlurTransform(AbstractTransform):
     def __init__(self, blur_sigma=(1, 5), data_key="data", label_key="seg", different_sigma_per_channel=True,
                  p_per_channel=1, p_per_sample=1):
-    def __init__(self, blur_sigma=(1, 5), data_key="data", label_key="seg", different_sigma_per_channel=True,
-                 p_per_channel=1):
         """
 
         :param blur_sigma:
@@ -99,7 +97,6 @@ class BlankSquareNoiseTransform(AbstractTransform):
                  data_key="data", label_key="seg", p_per_sample=1):
 
         self.p_per_sample = p_per_sample
-                 data_key="data", label_key="seg"):
         self.data_key = data_key
         self.label_key = label_key
         self.noise_val = noise_val
