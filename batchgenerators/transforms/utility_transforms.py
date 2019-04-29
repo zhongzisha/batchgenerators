@@ -13,13 +13,7 @@
 # limitations under the License.
 
 import copy
-
-
-from batchgenerators.transforms.abstract_transforms import AbstractTransform
-from batchgenerators.augmentations.utils import convert_seg_image_to_one_hot_encoding
-from batchgenerators.augmentations.utils import convert_seg_to_bounding_box_coordinates
-from batchgenerators.augmentations.utils import transpose_channels
-
+from warnings import warn
 import numpy as np
 
 from batchgenerators.augmentations.utils import convert_seg_image_to_one_hot_encoding, \
@@ -28,17 +22,44 @@ from batchgenerators.transforms.abstract_transforms import AbstractTransform
 
 
 class NumpyToTensor(AbstractTransform):
-    """Utility function for pytorch. Converts data (and seg) numpy ndarrays to pytorch tensors
-    """
+    def __init__(self, keys=None, cast_to=None):
+        """Utility function for pytorch. Converts data (and seg) numpy ndarrays to pytorch tensors
+        :param keys: specify keys to be converted to tensors. If None then all keys will be converted
+        (if value id np.ndarray). Can be a key (typically string) or a list/tuple of keys
+        :param cast_to: if not None then the values will be cast to what is specified here. Currently only half, float
+        and long supported (use string)
+        """
+        if keys is not None and not isinstance(keys, (list, tuple)):
+            keys = [keys]
+        self.keys = keys
+        self.cast_to = cast_to
+
+    def cast(self, tensor):
+        if self.cast_to is not None:
+            if self.cast_to == 'half':
+                tensor = tensor.half()
+            elif self.cast_to == 'float':
+                tensor = tensor.float()
+            elif self.cast_to == 'long':
+                tensor = tensor.long()
+            else:
+                raise ValueError('Unknown value for cast_to: %s' % self.cast_to)
+        return tensor
 
     def __call__(self, **data_dict):
         import torch
 
-        for key, val in data_dict.items():
-            if isinstance(val, np.ndarray):
-                data_dict[key] = torch.from_numpy(val.astype(np.float))
+        if self.keys is None:
+            for key, val in data_dict.items():
+                if isinstance(val, np.ndarray):
+                    data_dict[key] = self.cast(torch.from_numpy(val)).contiguous()
+        else:
+            for key in self.keys:
+                if isinstance(data_dict[key], np.ndarray):
+                    data_dict[key] = self.cast(torch.from_numpy(data_dict[key])).contiguous()
 
         return data_dict
+
 
 
 class ListToNumpy(AbstractTransform):
@@ -100,16 +121,108 @@ class ConvertSegToOnehotTransform(AbstractTransform):
         return data_dict
 
 
-class ConvertSegToBoundingBoxCoordinates(AbstractTransform):
-    """ Converts segmentation masks into bounding box coordinates. Works only for one object per image
-    """
+class ConvertMultiSegToOnehotTransform(AbstractTransform):
+    """Regular onehot conversion, but for each channel in the input seg."""
 
-    def __init__(self, dim):
-        self.dim = dim
+    def __init__(self, classes):
+        self.classes = classes
 
     def __call__(self, **data_dict):
-        data_dict['bb_target'], data_dict['roi_masks'], data_dict['roi_class_ids'], data_dict['patient_target'] = convert_seg_to_bounding_box_coordinates(data_dict['seg'], data_dict['class_target'], data_dict['pid'], self.dim)
-        data_dict['class_target'] = [data_dict['roi_class_ids'], data_dict['roi_masks']]
+        seg = data_dict.get("seg")
+        if seg is not None:
+            new_seg = np.zeros([seg.shape[0], len(self.classes) * seg.shape[1]] + list(seg.shape[2:]), dtype=seg.dtype)
+            for b in range(seg.shape[0]):
+                for c in range(seg.shape[1]):
+                    new_seg[b, c*len(self.classes):(c+1)*len(self.classes)] = convert_seg_image_to_one_hot_encoding(seg[b, c], self.classes)
+            data_dict["seg"] = new_seg
+        else:
+            from warnings import warn
+            warn("calling ConvertMultiSegToOnehotTransform but there is no segmentation")
+
+        return data_dict
+
+
+class ConvertSegToArgmaxTransform(AbstractTransform):
+    """Apply argmax to segmentation. Intended to be used with onehot segmentations.
+
+    Args:
+        labels (list or tuple for int): Label values corresponding to onehot indices. Assumed to be sorted.
+        keepdim (bool): Whether to keep the reduced axis with size 1
+    """
+
+    def __init__(self, labels=None, keepdim=True):
+        self.keepdim = keepdim
+        self.labels = labels
+
+    def __call__(self, **data_dict):
+        seg = data_dict.get("seg")
+        if seg is not None:
+            n_labels = seg.shape[1]
+            seg = np.argmax(seg, 1)
+            if self.keepdim:
+                seg = np.expand_dims(seg, 1)
+            if self.labels is not None:
+                if list(self.labels) != list(range(n_labels)):
+                    for index, value in enumerate(reversed(self.labels)):
+                        index = n_labels - index - 1
+                        seg[seg == index] = value
+            data_dict["seg"] = seg
+        else:
+            from warnings import warn
+            warn("Calling ConvertSegToArgmaxTransform but there is no segmentation")
+
+        return data_dict
+
+
+class ConvertMultiSegToArgmaxTransform(AbstractTransform):
+    """Apply argmax to segmentation. This is designed to reduce a onehot seg to one with multiple channels.
+
+    Args:
+        output_channels (int): Output segmentation will have this many channels.
+            It is required that output_channels evenly divides the number of channels in the input.
+        labels (list or tuple for int): Label values corresponding to onehot indices. Assumed to be sorted.
+    """
+
+    def __init__(self, output_channels=1, labels=None):
+        self.output_channels = output_channels
+        self.labels = labels
+
+    def __call__(self, **data_dict):
+        seg = data_dict.get("seg")
+        if seg is not None:
+            if not seg.shape[1] % self.output_channels == 0:
+                from warnings import warn
+                warn("Calling ConvertMultiSegToArgmaxTransform but number of input channels {} cannot be divided into {} output channels.".format(seg.shape[1], self.output_channels))
+            n_labels = seg.shape[1] // self.output_channels
+            target_size = list(seg.shape)
+            target_size[1] = self.output_channels
+            output = np.zeros(target_size, dtype=seg.dtype)
+            for i in range(self.output_channels):
+                output[:, i] = np.argmax(seg[:, i*n_labels:(i+1)*n_labels], 1)
+            if self.labels is not None:
+                if list(self.labels) != list(range(n_labels)):
+                    for index, value in enumerate(reversed(self.labels)):
+                        index = n_labels - index - 1
+                        output[output == index] = value
+            data_dict["seg"] = output
+        else:
+            from warnings import warn
+            warn("Calling ConvertMultiSegToArgmaxTransform but there is no segmentation")
+
+        return data_dict
+
+
+class ConvertSegToBoundingBoxCoordinates(AbstractTransform):
+    """ Converts segmentation masks into bounding box coordinates.
+    """
+
+    def __init__(self, dim, get_rois_from_seg_flag=False, class_specific_seg_flag=False):
+        self.dim = dim
+        self.get_rois_from_seg_flag = get_rois_from_seg_flag
+        self.class_specific_seg_flag = class_specific_seg_flag
+
+    def __call__(self, **data_dict):
+        data_dict = convert_seg_to_bounding_box_coordinates(data_dict, self.dim, self.get_rois_from_seg_flag, class_specific_seg_flag=self.class_specific_seg_flag)
         return data_dict
 
 class MoveSegToDataChannel(AbstractTransform):
@@ -255,4 +368,44 @@ class AddToDictTransform(AbstractTransform):
     def __call__(self, **data_dict):
         if self.in_key not in data_dict or self.strict:
             data_dict[self.in_key] = self.in_val
+        return data_dict
+
+
+class AppendChannelsTransform(AbstractTransform):
+    def __init__(self, input_key, output_key, channel_indexes, remove_from_input=True):
+        """
+        Moves channels specified by channel_indexes from input_key in data_dict to output_key (by appending in the
+        order specified in channel_indexes). The channels will be removed from input if remove_from_input is True
+        :param input_key:
+        :param output_key:
+        :param channel_indexes: must be tuple or list
+        :param remove_from_input:
+        """
+        self.remove_from_input = remove_from_input
+        self.channel_indexes = channel_indexes
+        self.output_key = output_key
+        self.input_key = input_key
+        assert isinstance(self.channel_indexes, (tuple, list)), "channel_indexes must be either tuple or list of int"
+
+    def __call__(self, **data_dict):
+        inp = data_dict.get(self.input_key)
+        outp = data_dict.get(self.output_key)
+
+        assert inp is not None, "input_key %s is not present in data_dict" % self.input_key
+
+        selected_channels = inp[:, self.channel_indexes]
+
+        if outp is None:
+            warn("output key %s is not present in dict, it will be created" % self.output_key)
+            outp = selected_channels
+            data_dict[self.output_key] = outp
+        else:
+            outp = np.concatenate((outp, selected_channels), axis=1)
+            data_dict[self.output_key] = outp
+
+        if self.remove_from_input:
+            remaining = [i for i in range(inp.shape[1]) if i not in self.channel_indexes]
+            inp = inp[:, remaining]
+            data_dict[self.input_key] = inp
+
         return data_dict

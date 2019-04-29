@@ -15,7 +15,6 @@
 from __future__ import print_function
 from builtins import range, zip
 import random
-
 import numpy as np
 from copy import deepcopy
 from scipy.ndimage import map_coordinates
@@ -68,6 +67,30 @@ def elastic_deform_coordinates(coordinates, alpha, sigma):
     return indices
 
 
+def elastic_deform_coordinates_2(coordinates, sigmas, magnitudes):
+    '''
+    magnitude can be a tuple/list
+    :param coordinates:
+    :param sigma:
+    :param magnitude:
+    :return:
+    '''
+    if not isinstance(magnitudes, (tuple, list)):
+        magnitudes = [magnitudes] * (len(coordinates) - 1)
+    if not isinstance(sigmas, (tuple, list)):
+        sigmas = [sigmas] * (len(coordinates) - 1)
+    n_dim = len(coordinates)
+    offsets = []
+    for d in range(n_dim):
+        offsets.append(
+            gaussian_filter((np.random.random(coordinates.shape[1:]) * 2 - 1), sigmas, mode="constant", cval=0))
+        mx = np.max(np.abs(offsets[-1]))
+        offsets[-1] = offsets[-1] / (mx / (magnitudes[d] + 1e-8))
+    offsets = np.array(offsets)
+    indices = offsets + coordinates
+    return indices
+
+
 def rotate_coords_3d(coords, angle_x, angle_y, angle_z):
     rot_matrix = np.identity(len(coords))
     rot_matrix = create_matrix_rotation_x_3d(angle_x, rot_matrix)
@@ -95,8 +118,16 @@ def uncenter_coords(coords):
     return coords
 
 
-def interpolate_img(img, coords, order=3, mode='nearest', cval=0.0):
-    return map_coordinates(img, coords, order=order, mode=mode, cval=cval)
+def interpolate_img(img, coords, order=3, mode='nearest', cval=0.0, is_seg=False):
+    if is_seg and order != 0:
+        unique_labels = np.unique(img)
+        result = np.zeros(coords.shape[1:], img.dtype)
+        for i, c in enumerate(unique_labels):
+            res_new = map_coordinates((img == c).astype(float), coords, order=order, mode=mode, cval=cval)
+            result[res_new >= 0.5] = c
+        return result
+    else:
+        return map_coordinates(img.astype(float), coords, order=order, mode=mode, cval=cval).astype(img.dtype)
 
 
 def generate_noise(shape, alpha, sigma):
@@ -315,6 +346,8 @@ def resize_image_by_padding_batched(image, new_shape, pad_value=None):
                       dtype=image.dtype) * pad_value
         res[:, :, int(start[0]):int(start[0]) + int(shape[0]), int(start[1]):int(start[1]) + int(shape[1]),
         int(start[2]):int(start[2]) + int(shape[2])] = image[:, :]
+    else:
+        raise RuntimeError("unexpected dimension")
     return res
 
 
@@ -433,53 +466,86 @@ def general_cc_var_num_channels(img, diff_order=0, mink_norm=1, sigma=1, mask_im
     return white_colors, output_img
 
 
-def convert_seg_to_bounding_box_coordinates(seg, class_target, pid, dim):
+def convert_seg_to_bounding_box_coordinates(data_dict, dim, get_rois_from_seg_flag=False, class_specific_seg_flag=False):
+
+        '''
+        This function generates bounding box annotations from given pixel-wise annotations.
+        :param data_dict: Input data dictionary as returned by the batch generator.
+        :param dim: Dimension in which the model operates (2 or 3).
+        :param get_rois_from_seg: Flag specifying one of the following scenarios:
+        1. A label map with individual ROIs identified by increasing label values, accompanied by a vector containing
+        in each position the class target for the lesion with the corresponding label (set flag to False)
+        2. A binary label map. There is only one foreground class and single lesions are not identified.
+        All lesions have the same class target (foreground). In this case the Dataloader runs a Connected Component
+        Labelling algorithm to create processable lesion - class target pairs on the fly (set flag to True).
+        :param class_specific_seg_flag: if True, returns the pixelwise-annotations in class specific manner,
+        e.g. a multi-class label map. If False, returns a binary annotation map (only foreground vs. background).
+        :return: data_dict: same as input, with additional keys:
+        - 'bb_target': bounding box coordinates (b, n_boxes, (y1, x1, y2, x2, (z1), (z2)))
+        - 'roi_labels': corresponding class labels for each box (b, n_boxes, class_label)
+        - 'roi_masks': corresponding binary segmentation mask for each lesion (box). Only used in Mask RCNN. (b, n_boxes, y, x, (z))
+        - 'seg': now label map (see class_specific_seg_flag)
+        '''
 
         bb_target = []
         roi_masks = []
-        roi_class_ids = []
-        patient_target = []
-
-        for b in range(seg.shape[0]):
+        roi_labels = []
+        out_seg = np.copy(data_dict['seg'])
+        for b in range(data_dict['seg'].shape[0]):
 
             p_coords_list = []
             p_roi_masks_list = []
-            p_roi_class_ids_list = []
-            patient_target.append(np.max(class_target[b]) + 1)
+            p_roi_labels_list = []
 
-            if np.sum(seg[b]!=0) > 0:
-                clusters, n_cands = lb(seg[b])
+            if np.sum(data_dict['seg'][b]!=0) > 0:
+                if get_rois_from_seg_flag:
+                    clusters, n_cands = lb(data_dict['seg'][b])
+                    data_dict['class_target'][b] = [data_dict['class_target'][b]] * n_cands
+                else:
+                    n_cands = int(np.max(data_dict['seg'][b]))
+                    clusters = data_dict['seg'][b]
+
                 rois = np.array([(clusters == ii) * 1 for ii in range(1, n_cands + 1)])  # separate clusters and concat
-                # rois = rois[:n_max_gt] #cut clutter out to save memory
-                # print("Rois in transformer", rois.shape, pid[b])
                 for rix, r in enumerate(rois):
-                    seg_ixs = np.argwhere(r != 0)
-                    coord_list = [np.min(seg_ixs[:, 1])-1, np.min(seg_ixs[:, 2])-1, np.max(seg_ixs[:, 1])+1,
-                                     np.max(seg_ixs[:, 2])+1]
-                    if dim == 3:
+                    if np.sum(r !=0) > 0: #check if the lesion survived data augmentation
+                        seg_ixs = np.argwhere(r != 0)
+                        coord_list = [np.min(seg_ixs[:, 1])-1, np.min(seg_ixs[:, 2])-1, np.max(seg_ixs[:, 1])+1,
+                                         np.max(seg_ixs[:, 2])+1]
+                        if dim == 3:
 
-                        coord_list.extend([np.min(seg_ixs[:, 3])-1, np.max(seg_ixs[:, 3])+1])
+                            coord_list.extend([np.min(seg_ixs[:, 3])-1, np.max(seg_ixs[:, 3])+1])
 
-                    p_coords_list.append(coord_list)
-                    p_roi_masks_list.append(r)
-                    p_roi_class_ids_list.append(class_target[b] + 1)
+                        p_coords_list.append(coord_list)
+                        p_roi_masks_list.append(r)
+                        # add background class = 0. rix is a patient wide index of lesions. since 'class_target' is
+                        # also patient wide, this assignment is not dependent on patch occurrances.
+                        p_roi_labels_list.append(data_dict['class_target'][b][rix] + 1)
+
+                    if class_specific_seg_flag:
+                        out_seg[b][data_dict['seg'][b] == rix + 1] = data_dict['class_target'][b][rix] + 1
+
+                if not class_specific_seg_flag:
+                    out_seg[b][data_dict['seg'][b] > 0] = 1
 
                 bb_target.append(np.array(p_coords_list))
-                roi_masks.append(np.array(p_roi_masks_list))
-                roi_class_ids.append(np.array(p_roi_class_ids_list))
+                roi_masks.append(np.array(p_roi_masks_list).astype('uint8'))
+                roi_labels.append(np.array(p_roi_labels_list))
 
-            elif class_target[b] == -1:
-                bb_target.append([])
-                roi_masks.append(np.zeros_like(seg[b])[None])
-                roi_class_ids.append(np.array([-1]))
 
             else:
-                print("fail: no seg in non-empty image", np.sum(seg!=0), pid[b], class_target, seg.shape)
                 bb_target.append([])
-                roi_masks.append(np.zeros_like(seg[b])[None])
-                roi_class_ids.append(np.array([-1]))
+                roi_masks.append(np.zeros_like(data_dict['seg'][b])[None])
+                roi_labels.append(np.array([-1]))
 
-        return bb_target, roi_masks, roi_class_ids, np.array(patient_target)
+        if get_rois_from_seg_flag:
+            data_dict.pop('class_target', None)
+
+        data_dict['bb_target'] = np.array(bb_target)
+        data_dict['roi_masks'] = np.array(roi_masks)
+        data_dict['roi_labels'] = np.array(roi_labels)
+        data_dict['seg'] = out_seg
+
+        return data_dict
 
 
 def transpose_channels(batch):
@@ -505,30 +571,30 @@ def resize_segmentation(segmentation, new_shape, order=3, cval=0):
     unique_labels = np.unique(segmentation)
     assert len(segmentation.shape) == len(new_shape), "new shape must have same dimensionality as segmentation"
     if order == 0:
-        return resize(segmentation, new_shape, order, mode="constant", cval=cval, clip=True).astype(tpe)
+        return resize(segmentation, new_shape, order, mode="constant", cval=cval, clip=True, anti_aliasing=False).astype(tpe)
     else:
-        reshaped_multihot = np.zeros([len(unique_labels)] + list(new_shape), dtype=float)
+        reshaped = np.zeros(new_shape, dtype=segmentation.dtype)
+
         for i, c in enumerate(unique_labels):
-            reshaped_multihot[i] = np.round(
-                resize((segmentation == c).astype(float), new_shape, order, mode="constant", cval=cval, clip=True))
-        reshaped = unique_labels[np.argmax(reshaped_multihot, 0)].astype(segmentation.dtype)
-        return reshaped.astype(tpe)
+            reshaped_multihot = resize((segmentation == c).astype(float), new_shape, order, mode="edge", clip=True, anti_aliasing=False)
+            reshaped[reshaped_multihot >= 0.5] = c
+        return reshaped
 
 
-def resize_softmax_output(softmax_output, new_shape, order=3):
+def resize_multichannel_image(multichannel_image, new_shape, order=3):
     '''
-    Resizes softmax output. Resizes each channel in c separately and fuses results back together
+    Resizes multichannel_image. Resizes each channel in c separately and fuses results back together
 
-    :param softmax_output: c x x x y x z
-    :param new_shape: x x y x z
+    :param multichannel_image: c x x x y (x z)
+    :param new_shape: x x y (x z)
     :param order:
     :return:
     '''
-    tpe = softmax_output.dtype
-    new_shp = [softmax_output.shape[0]] + list(new_shape)
-    result = np.zeros(new_shp, dtype=softmax_output.dtype)
-    for i in range(softmax_output.shape[0]):
-        result[i] = resize(softmax_output[i].astype(float), new_shape, order, "constant", 0, True)
+    tpe = multichannel_image.dtype
+    new_shp = [multichannel_image.shape[0]] + list(new_shape)
+    result = np.zeros(new_shp, dtype=multichannel_image.dtype)
+    for i in range(multichannel_image.shape[0]):
+        result[i] = resize(multichannel_image[i].astype(float), new_shape, order, "constant", 0, True, anti_aliasing=False)
     return result.astype(tpe)
 
 
@@ -546,9 +612,140 @@ def get_range_val(value, rnd_type="uniform"):
                 n_val = orig_type(n_val)
         elif len(value) == 1:
             n_val = value[0]
+        else:
+            raise RuntimeError("value must be either a single vlaue or a list/tuple of len 2")
         return n_val
     else:
         return value
 
 
+def uniform(low, high, size=None):
+    """
+    wrapper for np.random.uniform to allow it to handle low=high
+    :param low:
+    :param high:
+    :return:
+    """
+    if low == high:
+        if size is None:
+            return low
+        else:
+            return np.ones(size) * low
+    else:
+        return np.random.uniform(low, high, size)
 
+
+def pad_nd_image(image, new_shape=None, mode="constant", kwargs=None, return_slicer=False, shape_must_be_divisible_by=None):
+    """
+    one padder to pad them all. Documentation? Well okay. A little bit
+
+    :param image: nd image. can be anything
+    :param new_shape: what shape do you want? new_shape does not have to have the same dimensionality as image. If
+    len(new_shape) < len(image.shape) then the last axes of image will be padded. If new_shape < image.shape in any of
+    the axes then we will not pad that axis, but also not crop! (interpret new_shape as new_min_shape)
+    Example:
+    image.shape = (10, 1, 512, 512); new_shape = (768, 768) -> result: (10, 1, 768, 768). Cool, huh?
+    image.shape = (10, 1, 512, 512); new_shape = (364, 768) -> result: (10, 1, 512, 768).
+
+    :param mode: see np.pad for documentation
+    :param return_slicer: if True then this function will also return what coords you will need to use when cropping back
+    to original shape
+    :param shape_must_be_divisible_by: for network prediction. After applying new_shape, make sure the new shape is
+    divisibly by that number (can also be a list with an entry for each axis). Whatever is missing to match that will
+    be padded (so the result may be larger than new_shape if shape_must_be_divisible_by is not None)
+    :param kwargs: see np.pad for documentation
+    """
+    if kwargs is None:
+        kwargs = {'constant_values': 0}
+
+    if new_shape is not None:
+        old_shape = np.array(image.shape[-len(new_shape):])
+    else:
+        assert shape_must_be_divisible_by is not None
+        assert isinstance(shape_must_be_divisible_by, (list, tuple, np.ndarray))
+        new_shape = image.shape[-len(shape_must_be_divisible_by):]
+        old_shape = new_shape
+
+    num_axes_nopad = len(image.shape) - len(new_shape)
+
+    new_shape = [max(new_shape[i], old_shape[i]) for i in range(len(new_shape))]
+
+    if not isinstance(new_shape, np.ndarray):
+        new_shape = np.array(new_shape)
+
+    if shape_must_be_divisible_by is not None:
+        if not isinstance(shape_must_be_divisible_by, (list, tuple, np.ndarray)):
+            shape_must_be_divisible_by = [shape_must_be_divisible_by] * len(new_shape)
+        else:
+            assert len(shape_must_be_divisible_by) == len(new_shape)
+
+        for i in range(len(new_shape)):
+            if new_shape[i] % shape_must_be_divisible_by[i] == 0:
+                new_shape[i] -= shape_must_be_divisible_by[i]
+
+        new_shape = np.array([new_shape[i] + shape_must_be_divisible_by[i] - new_shape[i] % shape_must_be_divisible_by[i] for i in range(len(new_shape))])
+
+    difference = new_shape - old_shape
+    pad_below = difference // 2
+    pad_above = difference // 2 + difference % 2
+    pad_list = [[0, 0]]*num_axes_nopad + list([list(i) for i in zip(pad_below, pad_above)])
+
+    if not ((all([i == 0 for i in pad_below])) and (all([i == 0 for i in pad_above]))):
+        res = np.pad(image, pad_list, mode, **kwargs)
+    else:
+        res = image
+
+    if not return_slicer:
+        return res
+    else:
+        pad_list = np.array(pad_list)
+        pad_list[:, 1] = np.array(res.shape) - pad_list[:, 1]
+        slicer = list(slice(*i) for i in pad_list)
+        return res, slicer
+
+
+def mask_random_square(img, square_size, n_val, channel_wise_n_val=False, square_pos=None):
+    """Masks (sets = 0) a random square in an image"""
+
+    img_h = img.shape[-2]
+    img_w = img.shape[-1]
+
+    img = img.copy()
+
+    if square_pos is None:
+        w_start = np.random.randint(0, img_w - square_size)
+        h_start = np.random.randint(0, img_h - square_size)
+    else:
+        pos_wh = square_pos[np.random.randint(0, len(square_pos))]
+        w_start = pos_wh[0]
+        h_start = pos_wh[1]
+
+    if img.ndim == 2:
+        rnd_n_val = get_range_val(n_val)
+        img[h_start:(h_start + square_size), w_start:(w_start + square_size)] = rnd_n_val
+    elif img.ndim == 3:
+        if channel_wise_n_val:
+            for i in range(img.shape[0]):
+                rnd_n_val = get_range_val(n_val)
+                img[i, h_start:(h_start + square_size), w_start:(w_start + square_size)] = rnd_n_val
+        else:
+            rnd_n_val = get_range_val(n_val)
+            img[:, h_start:(h_start + square_size), w_start:(w_start + square_size)] = rnd_n_val
+    elif img.ndim == 4:
+        if channel_wise_n_val:
+            for i in range(img.shape[0]):
+                rnd_n_val = get_range_val(n_val)
+                img[:, i, h_start:(h_start + square_size), w_start:(w_start + square_size)] = rnd_n_val
+        else:
+            rnd_n_val = get_range_val(n_val)
+            img[:, :, h_start:(h_start + square_size), w_start:(w_start + square_size)] = rnd_n_val
+
+    return img
+
+
+def mask_random_squares(img, square_size, n_squares, n_val, channel_wise_n_val=False, square_pos=None):
+    """Masks a given number of squares in an image"""
+    for i in range(n_squares):
+        img = mask_random_square(img, square_size, n_val, channel_wise_n_val=channel_wise_n_val,
+                                 square_pos=square_pos)
+    return img
