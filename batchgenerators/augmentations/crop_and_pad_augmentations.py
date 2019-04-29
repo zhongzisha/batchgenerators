@@ -31,10 +31,10 @@ def get_lbs_for_random_crop(crop_size, data_shape, margins):
     """
     lbs = []
     for i in range(len(data_shape) - 2):
-        if data_shape[i+2] - crop_size[i] - margins[i] > margins[i]:
-            lbs.append(np.random.randint(margins[i], data_shape[i+2] - crop_size[i] - margins[i]))
+        if data_shape[i + 2] - crop_size[i] - margins[i] > margins[i]:
+            lbs.append(np.random.randint(margins[i], data_shape[i + 2] - crop_size[i] - margins[i]))
         else:
-            lbs.append((data_shape[i+2] - crop_size[i]) // 2)
+            lbs.append((data_shape[i + 2] - crop_size[i]) // 2)
     return lbs
 
 
@@ -119,7 +119,7 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
                                   for d in range(dim)]
 
         # we should crop first, then pad -> reduces i/o for memmaps, reduces RAM usage and improves speed
-        ubs = [min(lbs[d] + crop_size[d], data_shape_here[d+2]) for d in range(dim)]
+        ubs = [min(lbs[d] + crop_size[d], data_shape_here[d + 2]) for d in range(dim)]
         lbs = [max(0, lbs[d]) for d in range(dim)]
 
         slicer_data = [slice(0, data_shape_here[1])] + [slice(lbs[d], ubs[d]) for d in range(dim)]
@@ -171,3 +171,50 @@ def pad_nd_image_and_seg(data, seg, new_shape=None, must_be_divisible_by=None, p
     else:
         sample_seg = None
     return sample_data, sample_seg
+
+
+def fillup_pad(data, min_size, seg=None, pad_value_data=None, pad_value_seg=None):
+    if isinstance(data, np.ndarray):
+        data_shape = tuple(list(data.shape))  #
+
+        if type(min_size) not in (tuple, list):
+            min_size = [min_size] * (len(data_shape) - 2)
+        else:
+            assert len(min_size) == len(
+                data_shape) - 2, "If you provide a list/tuple as center crop make sure it has the same dimension as your " \
+                                 "data (2d/3d)"
+
+        if np.min(np.asarray(data_shape[2:]) - np.asarray(min_size)) < 0:
+            return pad(data, min_size, seg, pad_value_data, pad_value_seg)
+        else:
+            return data, seg
+    elif isinstance(data, (list, tuple)):
+
+        if type(min_size) not in (tuple, list, np.ndarray):
+            min_size = [min_size] * (len(data[0].shape) - 1)
+        else:
+            assert len(min_size) == len(
+                data[0].shape) - 1, "If you provide a list/tuple as center crop make sure it has the same dimension as " \
+                                    "your " \
+                                    "data (2d/3d)"
+
+        res_data = []
+        res_seg = []
+        for i in range(len(data)):
+            data_smpl = data[i]
+            seg_smpl = None
+            if seg is not None:
+                seg_smpl = [seg[i]]
+            new_shp = np.max(np.vstack((np.array(data_smpl.shape[1:])[None], np.array(min_size)[None])), 0)
+
+            res_d = pad_nd_image(data_smpl, new_shp)
+
+            res_data.append(res_d[0])
+            if seg is not None:
+                res_s = pad_nd_image(seg_smpl, new_shp)
+                res_seg.append(res_s[0])
+            else:
+                res_seg = None
+        return res_data, res_seg
+    else:
+        raise TypeError("Data has to be either a numpy array or a list")

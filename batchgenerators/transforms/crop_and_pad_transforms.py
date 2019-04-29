@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from batchgenerators.augmentations.crop_and_pad_augmentations import center_crop, pad_nd_image_and_seg, random_crop
+from batchgenerators.augmentations.crop_and_pad_augmentations import center_crop, pad_nd_image_and_seg, random_crop, \
+    fillup_pad
 from batchgenerators.transforms.abstract_transforms import AbstractTransform
 import numpy as np
 
@@ -127,6 +128,13 @@ class PadTransform(AbstractTransform):
         data = data_dict.get(self.data_key)
         seg = data_dict.get(self.label_key)
 
+        data_len = 0
+        if isinstance(data, (list, tuple)):
+            data_len = len(data[0].shape) +1
+        elif isinstance(data, np.ndarray):
+            data_len = len(data.shape)
+
+
         assert len(self.new_size) + 2 == len(data.shape), "new size must be a tuple/list/np.ndarray with shape " \
                                                     "(x, y(, z))"
         data, seg = pad_nd_image_and_seg(data, seg, self.new_size, None,
@@ -141,3 +149,35 @@ class PadTransform(AbstractTransform):
 
         return data_dict
 
+
+class FillupPadTransform(AbstractTransform):
+    """Pads data and seg if not already having the minimal given size
+
+    Args:
+        min_size (tuple of int): Size after padding
+
+        pad_value_data: constant value with which to pad data. If None it uses the image value of [0, 0(, 0)] for each
+        sample and channel
+
+        pad_value_seg: constant value with which to pad segIf None it uses the seg value of [0, 0(, 0)] for each sample
+        and channel
+    """
+
+    def __init__(self, min_size, pad_value_data=None, pad_value_seg=None, data_key="data", label_key="seg"):
+        self.data_key = data_key
+        self.label_key = label_key
+        self.pad_value_seg = pad_value_seg
+        self.pad_value_data = pad_value_data
+        self.new_size = min_size
+
+    def __call__(self, **data_dict):
+        data = data_dict.get(self.data_key)
+        seg = data_dict.get(self.label_key)
+
+        data, seg = fillup_pad(data, self.new_size, seg, self.pad_value_data, self.pad_value_seg)
+
+        data_dict[self.data_key] = data
+        if seg is not None:
+            data_dict[self.label_key] = seg
+
+        return data_dict
