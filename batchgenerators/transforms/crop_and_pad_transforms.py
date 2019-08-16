@@ -75,21 +75,30 @@ class RandomCropTransform(AbstractTransform):
 
         margins (tuple of int): how much distance should the patch border have to the image broder (bilaterally)?
 
+        return_params: True: augmentation parameters are returned in an additional dict entry "aug_params".
+        False [default]
+
     """
 
-    def __init__(self, crop_size=128, margins=(0, 0, 0), data_key="data", label_key="seg"):
+    def __init__(self, crop_size=128, margins=(0, 0, 0), data_key="data", label_key="seg", return_params=False):
         self.data_key = data_key
         self.label_key = label_key
         self.margins = margins
         self.crop_size = crop_size
+        self.return_params = return_params
 
     def __call__(self, **data_dict):
         data = data_dict.get(self.data_key)
         seg = data_dict.get(self.label_key)
 
-        data, seg = random_crop(data, seg, self.crop_size, self.margins)
+        if self.return_params:
+            data, seg, data_dict["aug_params"]["random_crop"] = random_crop(data, seg, self.crop_size, self.margins,
+                                                             return_params=self.return_params)
+        else:
+            data, seg = random_crop(data, seg, self.crop_size, self.margins)
 
         data_dict[self.data_key] = data
+
         if seg is not None:
             data_dict[self.label_key] = seg
 

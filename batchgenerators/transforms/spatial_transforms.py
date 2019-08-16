@@ -283,12 +283,15 @@ class SpatialTransform(AbstractTransform):
 
         random_crop: True: do a random crop of size patch_size and minimal distance to border of
         patch_center_dist_from_border. False: do a center crop of size patch_size
+
+        return_params: True: augmentation parameters are returned in an additional dict entry "aug_params".
+        False [default]
     """
     def __init__(self, patch_size, patch_center_dist_from_border=30,
                  do_elastic_deform=True, alpha=(0., 1000.), sigma=(10., 13.),
                  do_rotation=True, angle_x=(0, 2 * np.pi), angle_y=(0, 2 * np.pi), angle_z=(0, 2 * np.pi),
                  do_scale=True, scale=(0.75, 1.25), border_mode_data='nearest', border_cval_data=0, order_data=3,
-                 border_mode_seg='constant', border_cval_seg=0, order_seg=0, random_crop=True, data_key="data", label_key="seg", p_el_per_sample=1, p_scale_per_sample=1, p_rot_per_sample=1):
+                 border_mode_seg='constant', border_cval_seg=0, order_seg=0, random_crop=True, data_key="data", label_key="seg", p_el_per_sample=1, p_scale_per_sample=1, p_rot_per_sample=1, return_params=False):
         self.p_rot_per_sample = p_rot_per_sample
         self.p_scale_per_sample = p_scale_per_sample
         self.p_el_per_sample = p_el_per_sample
@@ -312,6 +315,7 @@ class SpatialTransform(AbstractTransform):
         self.border_cval_seg = border_cval_seg
         self.order_seg = order_seg
         self.random_crop = random_crop
+        self.return_params = return_params
 
     def __call__(self, **data_dict):
         data = data_dict.get(self.data_key)
@@ -337,9 +341,11 @@ class SpatialTransform(AbstractTransform):
                                   border_mode_seg=self.border_mode_seg, border_cval_seg=self.border_cval_seg,
                                   order_seg=self.order_seg, random_crop=self.random_crop,
                                   p_el_per_sample=self.p_el_per_sample, p_scale_per_sample=self.p_scale_per_sample,
-                                  p_rot_per_sample=self.p_rot_per_sample)
+                                  p_rot_per_sample=self.p_rot_per_sample, return_params=self.return_params)
 
         data_dict[self.data_key] = ret_val[0]
+        if self.return_params:
+            data_dict["aug_params"] = ret_val[2]
         if seg is not None:
             data_dict[self.label_key] = ret_val[1]
 

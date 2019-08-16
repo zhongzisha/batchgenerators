@@ -52,7 +52,7 @@ def get_lbs_for_center_crop(crop_size, data_shape):
 
 def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
          pad_mode='constant', pad_kwargs={'constant_values': 0},
-         pad_mode_seg='constant', pad_kwargs_seg={'constant_values': 0}):
+         pad_mode_seg='constant', pad_kwargs_seg={'constant_values': 0}, return_params=False):
     """
     crops data and seg (seg may be None) to crop_size. Whether this will be achieved via center or random crop is
     determined by crop_type. Margin will be respected only for random_crop and will prevent the crops form being closer
@@ -66,6 +66,8 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
     :param margins: distance from each border, can be int or list/tuple of ints (one element for each dimension).
     Can be negative (data/seg will be padded if needed)
     :param crop_type: random or center
+    :param return_params: bool, if True a dict containing the center pixel for cropping with respect to the crop_size is
+    returned
     :return:
     """
     if not isinstance(data, (list, tuple, np.ndarray)):
@@ -102,6 +104,7 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
     else:
         seg_return = None
 
+    lbs_batch = []
     for b in range(data_shape[0]):
         data_shape_here = [data_shape[0]] + list(data[b].shape)
         if seg is not None:
@@ -111,6 +114,7 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
             lbs = get_lbs_for_center_crop(crop_size, data_shape_here)
         elif crop_type == "random":
             lbs = get_lbs_for_random_crop(crop_size, data_shape_here, margins)
+            lbs_batch.append(lbs)
         else:
             raise NotImplementedError("crop_type must be either center or random")
 
@@ -138,11 +142,19 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
             if seg_return is not None:
                 seg_return[b] = seg_cropped
 
-    return data_return, seg_return
+    if return_params:
+        if crop_type == "center":
+            lbs_return = np.asarray(lbs)
+        if crop_type == "random":
+            lbs_return = np.asarray(lbs_batch)
+        return data_return, seg_return, lbs_return
+
+    else:
+        return data_return, seg_return
 
 
-def random_crop(data, seg=None, crop_size=128, margins=[0, 0, 0]):
-    return crop(data, seg, crop_size, margins, 'random')
+def random_crop(data, seg=None, crop_size=128, margins=[0, 0, 0], return_params=False):
+    return crop(data, seg, crop_size, margins, 'random', return_params=return_params)
 
 
 def pad_nd_image_and_seg(data, seg, new_shape=None, must_be_divisible_by=None, pad_mode_data='constant',
