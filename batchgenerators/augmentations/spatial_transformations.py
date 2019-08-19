@@ -192,9 +192,12 @@ def augment_spatial(data, seg, patch_size, patch_center_dist_from_border=30,
                     do_rotation=True, angle_x=(0, 2 * np.pi), angle_y=(0, 2 * np.pi), angle_z=(0, 2 * np.pi),
                     do_scale=True, scale=(0.75, 1.25), border_mode_data='nearest', border_cval_data=0, order_data=3,
                     border_mode_seg='constant', border_cval_seg=0, order_seg=0, random_crop=True, p_el_per_sample=1,
-                    p_scale_per_sample=1, p_rot_per_sample=1, return_params=False, per_instance=False):
+                    p_scale_per_sample=1, p_rot_per_sample=1, return_params=False,
+                    seed=None):
 
     dim = len(patch_size)
+    if seed is not None:
+        np.random.seed(seed)
     seg_result = None
     if seg is not None:
         if dim == 2:
