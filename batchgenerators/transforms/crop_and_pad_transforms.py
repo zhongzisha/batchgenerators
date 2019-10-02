@@ -93,7 +93,7 @@ class RandomCropTransform(AbstractTransform):
 
         if self.return_params:
             data, seg, data_dict["aug_params"]["random_crop"] = random_crop(data, seg, self.crop_size, self.margins,
-                                                             return_params=self.return_params)
+                                                                            return_params=self.return_params)
         else:
             data, seg = random_crop(data, seg, self.crop_size, self.margins)
 
