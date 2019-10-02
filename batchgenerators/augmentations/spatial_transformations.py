@@ -193,24 +193,11 @@ def augment_spatial(data, seg, patch_size, patch_center_dist_from_border=30,
                     do_scale=True, scale=(0.75, 1.25), border_mode_data='nearest', border_cval_data=0, order_data=3,
                     border_mode_seg='constant', border_cval_seg=0, order_seg=0, random_crop=True, p_el_per_sample=1,
                     p_scale_per_sample=1, p_rot_per_sample=1, return_params=False,
-                    seed=None):
+                    seed=None, gaussian_sampling=False):
 
     dim = len(patch_size)
     if seed is not None:
         np.random.seed(seed)
-    seg_result = None
-    if seg is not None:
-        if dim == 2:
-            seg_result = np.zeros((seg.shape[0], seg.shape[1], patch_size[0], patch_size[1]), dtype=np.float32)
-        else:
-            seg_result = np.zeros((seg.shape[0], seg.shape[1], patch_size[0], patch_size[1], patch_size[2]),
-                                  dtype=np.float32)
-
-    if dim == 2:
-        data_result = np.zeros((data.shape[0], data.shape[1], patch_size[0], patch_size[1]), dtype=np.float32)
-    else:
-        data_result = np.zeros((data.shape[0], data.shape[1], patch_size[0], patch_size[1], patch_size[2]),
-                               dtype=np.float32)
 
     if not isinstance(patch_center_dist_from_border, (list, tuple, np.ndarray)):
         patch_center_dist_from_border = dim * [patch_center_dist_from_border]
@@ -231,16 +218,25 @@ def augment_spatial(data, seg, patch_size, patch_center_dist_from_border=30,
             if angle_x[0] == angle_x[1]:
                 a_x = angle_x[0]
             else:
-                a_x = np.random.uniform(angle_x[0], angle_x[1])
+                if gaussian_sampling:
+                    a_x = np.random.normal(angle_x[0], angle_x[1])
+                else:
+                    a_x = np.random.uniform(angle_x[0], angle_x[1])
             if dim == 3:
                 if angle_y[0] == angle_y[1]:
                     a_y = angle_y[0]
                 else:
-                    a_y = np.random.uniform(angle_y[0], angle_y[1])
+                    if gaussian_sampling:
+                        a_y = np.random.normal(angle_y[0], angle_y[1])
+                    else:
+                        a_y = np.random.uniform(angle_y[0], angle_y[1])
                 if angle_z[0] == angle_z[1]:
                     a_z = angle_z[0]
                 else:
-                    a_z = np.random.uniform(angle_z[0], angle_z[1])
+                    if gaussian_sampling:
+                        a_z = np.random.normal(angle_z[0], angle_z[1])
+                    else:
+                        a_z = np.random.uniform(angle_z[0], angle_z[1])
                 coords = rotate_coords_3d(coords, a_x, a_y, a_z)
             else:
                 coords = rotate_coords_2d(coords, a_x)
@@ -248,7 +244,7 @@ def augment_spatial(data, seg, patch_size, patch_center_dist_from_border=30,
             if dim == 3:
                 spatial_aug_batch['rotation'].append([a_x, a_y, a_z])
             else:
-                spatial_aug_batch['rotation'].append([a_x])
+                spatial_aug_batch['rotation'].append(a_x)
 
         if np.random.uniform() < p_scale_per_sample and do_scale:
             if np.random.random() < 0.5 and scale[0] < 1:
@@ -257,7 +253,7 @@ def augment_spatial(data, seg, patch_size, patch_center_dist_from_border=30,
                 sc = np.random.uniform(max(scale[0], 1), scale[1])
             coords = scale_coords(coords, sc)
             modified_coords = True
-            spatial_aug_batch['scale'].append([sc])
+            spatial_aug_batch['scale'].append(sc)
 
         # now find a nice center location
         if modified_coords:
@@ -267,14 +263,14 @@ def augment_spatial(data, seg, patch_size, patch_center_dist_from_border=30,
                                             data.shape[d + 2] - patch_center_dist_from_border[d])
                 else:
                     ctr = int(np.round(data.shape[d + 2] / 2.))
-                spatial_aug_batch['random_crop'].append([ctr])
+                spatial_aug_batch['random_crop'].append(ctr)
                 coords[d] += ctr
             for channel_id in range(data.shape[1]):
-                data_result[sample_id, channel_id] = interpolate_img(data[sample_id, channel_id], coords, order_data,
+                data[sample_id, channel_id] = interpolate_img(data[sample_id, channel_id], coords, order_data,
                                                                      border_mode_data, cval=border_cval_data)
             if seg is not None:
                 for channel_id in range(seg.shape[1]):
-                    seg_result[sample_id, channel_id] = interpolate_img(seg[sample_id, channel_id], coords, order_seg,
+                    seg[sample_id, channel_id] = interpolate_img(seg[sample_id, channel_id], coords, order_seg,
                                                                         border_mode_seg, cval=border_cval_seg, is_seg=True)
         else:
             if seg is None:
@@ -285,15 +281,15 @@ def augment_spatial(data, seg, patch_size, patch_center_dist_from_border=30,
                 margin = [patch_center_dist_from_border[d] - patch_size[d] // 2 for d in range(dim)]
                 d, s = random_crop_aug(data[sample_id:sample_id + 1], s, patch_size, margin)
             else:
-                d, s = center_crop_aug(data[sample_id:sample_id + 1], patch_size, s)
-            data_result[sample_id] = d[0]
+                data, s = center_crop_aug(data[sample_id:sample_id + 1], patch_size, s)
+            data[sample_id] = d[0]
             if seg is not None:
-                seg_result[sample_id] = s[0]
+                seg[sample_id] = s[0]
     if return_params:
-        transform_params = {key: np.squeeze(spatial_aug_batch[key]) for key in spatial_aug_batch if spatial_aug_batch[key]}
-        return data_result, seg_result, transform_params
+        transform_params = {key: np.array(spatial_aug_batch[key]) for key in spatial_aug_batch if spatial_aug_batch[key]}
+        return data, seg, transform_params
     else:
-        return data_result, seg_result
+        return data, seg
 
 
 def augment_spatial_2(data, seg, patch_size, patch_center_dist_from_border=30,
