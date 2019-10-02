@@ -288,6 +288,8 @@ class SpatialTransform(AbstractTransform):
         False [default]
 
         seed: None. If True spatial augmentation are seeded.
+
+        gaussian sampling: False. If True, the rotation augmentation parameters are sampled from a gaussian distribution
     """
     def __init__(self, patch_size, patch_center_dist_from_border=30,
                  do_elastic_deform=True, alpha=(0., 1000.), sigma=(10., 13.),
@@ -295,7 +297,7 @@ class SpatialTransform(AbstractTransform):
                  do_scale=True, scale=(0.75, 1.25), border_mode_data='nearest', border_cval_data=0, order_data=3,
                  border_mode_seg='constant', border_cval_seg=0, order_seg=0, random_crop=True, data_key="data",
                  label_key="seg", p_el_per_sample=1, p_scale_per_sample=1, p_rot_per_sample=1, return_params=False,
-                 seed_for_aug=None):
+                 seed_for_aug=None, gaussian_sampling=False):
         self.p_rot_per_sample = p_rot_per_sample
         self.p_scale_per_sample = p_scale_per_sample
         self.p_el_per_sample = p_el_per_sample
@@ -321,6 +323,7 @@ class SpatialTransform(AbstractTransform):
         self.random_crop = random_crop
         self.return_params = return_params
         self.rs = np.random.RandomState(seed_for_aug)
+        self.gaussian_sampling = gaussian_sampling
 
     def __call__(self, **data_dict):
         data = data_dict.get(self.data_key)
@@ -348,7 +351,8 @@ class SpatialTransform(AbstractTransform):
                                   border_mode_seg=self.border_mode_seg, border_cval_seg=self.border_cval_seg,
                                   order_seg=self.order_seg, random_crop=self.random_crop,
                                   p_el_per_sample=self.p_el_per_sample, p_scale_per_sample=self.p_scale_per_sample,
-                                  p_rot_per_sample=self.p_rot_per_sample, return_params=self.return_params, seed=seed)
+                                  p_rot_per_sample=self.p_rot_per_sample, return_params=self.return_params, seed=seed,
+                                  gaussian_sampling=self.gaussian_sampling)
 
         data_dict[self.data_key] = ret_val[0]
         if self.return_params:
