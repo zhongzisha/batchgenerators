@@ -17,8 +17,8 @@ import numpy as np
 from batchgenerators.augmentations.utils import pad_nd_image
 
 
-def center_crop(data, crop_size, seg=None):
-    return crop(data, seg, crop_size, 0, 'center')
+def center_crop(data, crop_size, seg=None, return_params=False):
+    return crop(data, seg, crop_size, 0, 'center', return_params=return_params)
 
 
 def get_lbs_for_random_crop(crop_size, data_shape, margins):
