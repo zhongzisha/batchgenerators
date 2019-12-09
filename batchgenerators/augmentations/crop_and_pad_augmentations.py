@@ -17,8 +17,12 @@ import numpy as np
 from batchgenerators.augmentations.utils import pad_nd_image
 
 
-def center_crop(data, crop_size, seg=None, return_params=False):
-    return crop(data, seg, crop_size, 0, 'center', return_params=return_params)
+def center_crop(data, crop_size, seg=None):
+    return crop(data, seg, crop_size, 0, 'center')
+
+
+def constrained_random_crop(data, seg=None, crop_size=128, margins=[0, 0, 0], return_params=False, anchor=[0, 0, 0]):
+    return crop(data, seg, crop_size, margins, 'constrained', return_params=return_params, anchor=anchor)
 
 
 def get_lbs_for_random_crop(crop_size, data_shape, margins):
@@ -38,6 +42,26 @@ def get_lbs_for_random_crop(crop_size, data_shape, margins):
     return lbs
 
 
+def get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor):
+    """
+
+    :param crop_size:
+    :param data_shape: (b,c,x,y(,z)) must be the whole thing!
+    :param anchor: random crop is contrained to include anchor point
+    :return:
+    """
+    lbs = []
+    for i in range(len(data_shape) - 2):
+        margin_left = anchor[i]-crop_size[i]+1
+        if margin_left < 0:
+            margin_left = 0
+        margin_right = data_shape[i+2]-(anchor[i]+crop_size[i])
+        if margin_right > 0:
+            margin_right = 0
+        lbs.append(np.random.randint(margin_left, anchor[i]+margin_right+1))
+    return lbs
+
+
 def get_lbs_for_center_crop(crop_size, data_shape):
     """
     :param crop_size:
@@ -52,22 +76,23 @@ def get_lbs_for_center_crop(crop_size, data_shape):
 
 def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
          pad_mode='constant', pad_kwargs={'constant_values': 0},
-         pad_mode_seg='constant', pad_kwargs_seg={'constant_values': 0}, return_params=False):
+         pad_mode_seg='constant', pad_kwargs_seg={'constant_values': 0}, return_params=False, anchor=None):
     """
-    crops data and seg (seg may be None) to crop_size. Whether this will be achieved via center or random crop is
-    determined by crop_type. Margin will be respected only for random_crop and will prevent the crops form being closer
-    than margin to the respective image border. crop_size can be larger than data_shape - margin -> data/seg will be
-    padded with zeros in that case. margins can be negative -> results in padding of data/seg followed by cropping with
-    margin=0 for the appropriate axes
+    crops data and seg (seg may be None) to crop_size. Whether this will be achieved via center or random crop or
+    constrained random crop is determined by crop_type. Margin will be respected only for random_crop and will prevent
+    the crops form being closer than margin to the respective image border. crop_size can be larger than data_shape
+    - margin -> data/seg will be padded with zeros in that case. margins can be negative -> results in padding of
+    data/seg followed by cropping with margin=0 for the appropriate axes
 
     :param data: b, c, x, y(, z)
     :param seg:
     :param crop_size:
     :param margins: distance from each border, can be int or list/tuple of ints (one element for each dimension).
     Can be negative (data/seg will be padded if needed)
-    :param crop_type: random or center
+    :param crop_type: random or center or constrained
     :param return_params: bool, if True a dict containing the center pixel for cropping with respect to the crop_size is
     returned
+    :param anchor: x, y(, z) anchor point for contrained random crop
     :return:
     """
     if not isinstance(data, (list, tuple, np.ndarray)):
@@ -115,6 +140,9 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
         elif crop_type == "random":
             lbs = get_lbs_for_random_crop(crop_size, data_shape_here, margins)
             lbs_batch.append(lbs)
+        elif crop_type == "constrained":
+            lbs = get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor)
+            lbs_batch.append(lbs)
         else:
             raise NotImplementedError("crop_type must be either center or random")
 
@@ -145,7 +173,7 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
     if return_params:
         if crop_type == "center":
             lbs_return = np.asarray(lbs)
-        if crop_type == "random":
+        if crop_type == "random" or crop_type == "constrained":
             lbs_return = np.asarray(lbs_batch)
         return data_return, seg_return, lbs_return
 
