@@ -47,7 +47,7 @@ def get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor):
 
     :param crop_size:
     :param data_shape: (b,c,x,y(,z)) must be the whole thing!
-    :param anchor: random crop is contrained to include anchor point
+    :param anchor: random crop is constrained to include anchor point
     :return:
     """
     lbs = []
@@ -58,7 +58,10 @@ def get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor):
         margin_right = data_shape[i+2]-(anchor[i]+crop_size[i])
         if margin_right > 0:
             margin_right = 0
-        lbs.append(np.random.randint(margin_left, anchor[i]+margin_right+1))
+        if margin_left >= margin_right+ anchor[i]+1:
+            lbs.append(0)
+        else:
+            lbs.append(np.random.randint(margin_left, anchor[i]+margin_right+1))
     return lbs
 
 
