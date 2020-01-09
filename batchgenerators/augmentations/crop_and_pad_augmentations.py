@@ -25,14 +25,18 @@ def constrained_random_crop(data, seg=None, crop_size=128, margins=[0, 0, 0], re
     return crop(data, seg, crop_size, margins, 'constrained', return_params=return_params, anchor=anchor)
 
 
-def get_lbs_for_random_crop(crop_size, data_shape, margins):
+def get_lbs_for_random_crop(crop_size, data_shape, margins, seed=None):
     """
 
     :param crop_size:
     :param data_shape: (b,c,x,y(,z)) must be the whole thing!
     :param margins:
+    :param seed:
     :return:
     """
+    if seed is not None:
+        np.random.seed(seed)
+
     lbs = []
     for i in range(len(data_shape) - 2):
         if data_shape[i+2] - crop_size[i] - margins[i] > margins[i]:
@@ -42,14 +46,18 @@ def get_lbs_for_random_crop(crop_size, data_shape, margins):
     return lbs
 
 
-def get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor):
+def get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, seed=None):
     """
 
     :param crop_size:
     :param data_shape: (b,c,x,y(,z)) must be the whole thing!
     :param anchor: random crop is constrained to include anchor point
+    :param seed:
     :return:
     """
+    if seed is not None:
+        np.random.seed(seed)
+
     lbs = []
     for i in range(len(data_shape) - 2):
         margin_left = anchor[i]-crop_size[i]+1
@@ -79,7 +87,7 @@ def get_lbs_for_center_crop(crop_size, data_shape):
 
 def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
          pad_mode='constant', pad_kwargs={'constant_values': 0},
-         pad_mode_seg='constant', pad_kwargs_seg={'constant_values': 0}, return_params=False, anchor=None):
+         pad_mode_seg='constant', pad_kwargs_seg={'constant_values': 0}, return_params=False, anchor=None, seed=None):
     """
     crops data and seg (seg may be None) to crop_size. Whether this will be achieved via center or random crop or
     constrained random crop is determined by crop_type. Margin will be respected only for random_crop and will prevent
@@ -96,6 +104,7 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
     :param return_params: bool, if True a dict containing the center pixel for cropping with respect to the crop_size is
     returned
     :param anchor: x, y(, z) anchor point for contrained random crop
+    :param seed:
     :return:
     """
     if not isinstance(data, (list, tuple, np.ndarray)):
@@ -141,10 +150,10 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
         if crop_type == "center":
             lbs = get_lbs_for_center_crop(crop_size, data_shape_here)
         elif crop_type == "random":
-            lbs = get_lbs_for_random_crop(crop_size, data_shape_here, margins)
+            lbs = get_lbs_for_random_crop(crop_size, data_shape_here, margins, seed)
             lbs_batch.append(lbs)
         elif crop_type == "constrained":
-            lbs = get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor)
+            lbs = get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, seed)
             lbs_batch.append(lbs)
         else:
             raise NotImplementedError("crop_type must be either center or random")
@@ -184,8 +193,8 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
         return data_return, seg_return
 
 
-def random_crop(data, seg=None, crop_size=128, margins=[0, 0, 0], return_params=False):
-    return crop(data, seg, crop_size, margins, 'random', return_params=return_params)
+def random_crop(data, seg=None, crop_size=128, margins=[0, 0, 0], return_params=False, seed=None):
+    return crop(data, seg, crop_size, margins, 'random', return_params=return_params, seed=seed)
 
 
 def pad_nd_image_and_seg(data, seg, new_shape=None, must_be_divisible_by=None, pad_mode_data='constant',

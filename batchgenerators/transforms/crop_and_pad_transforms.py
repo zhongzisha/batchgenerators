@@ -80,22 +80,26 @@ class RandomCropTransform(AbstractTransform):
 
     """
 
-    def __init__(self, crop_size=128, margins=(0, 0, 0), data_key="data", label_key="seg", return_params=False):
+    def __init__(self, crop_size=128, margins=(0, 0, 0), data_key="data", label_key="seg", return_params=False,
+                 seed_for_aug=None):
         self.data_key = data_key
         self.label_key = label_key
         self.margins = margins
         self.crop_size = crop_size
         self.return_params = return_params
+        self.rs = np.random.RandomState(seed_for_aug)
 
     def __call__(self, **data_dict):
         data = data_dict.get(self.data_key)
         seg = data_dict.get(self.label_key)
 
+        seed = self.rs.randint(0, 999999999)
+
         if self.return_params:
             data, seg, data_dict["aug_params"]["random_crop"] = random_crop(data, seg, self.crop_size, self.margins,
-                                                                            return_params=self.return_params)
+                                                                            return_params=self.return_params, seed=seed)
         else:
-            data, seg = random_crop(data, seg, self.crop_size, self.margins)
+            data, seg = random_crop(data, seg, self.crop_size, self.margins, seed=seed)
 
         data_dict[self.data_key] = data
 
