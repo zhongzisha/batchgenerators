@@ -15,6 +15,7 @@
 from builtins import range
 import numpy as np
 from batchgenerators.augmentations.utils import pad_nd_image
+import random
 
 
 def center_crop(data, crop_size, seg=None):
@@ -25,39 +26,36 @@ def constrained_random_crop(data, seg=None, crop_size=128, margins=[0, 0, 0], re
     return crop(data, seg, crop_size, margins, 'constrained', return_params=return_params, anchor=anchor)
 
 
-def get_lbs_for_random_crop(crop_size, data_shape, margins, seed=None):
+def get_lbs_for_random_crop(crop_size, data_shape, margins, rs):
     """
 
     :param crop_size:
     :param data_shape: (b,c,x,y(,z)) must be the whole thing!
     :param margins:
-    :param seed:
+    :param rs: seeded random number generator
     :return:
     """
-    if seed is not None:
-        np.random.seed(seed)
-
     lbs = []
     for i in range(len(data_shape) - 2):
         if data_shape[i+2] - crop_size[i] - margins[i] > margins[i]:
-            lbs.append(np.random.randint(margins[i], data_shape[i+2] - crop_size[i] - margins[i]))
+            if rs is None:
+                lbs.append(np.random.randint(margins[i], data_shape[i+2] - crop_size[i] - margins[i]))
+            else:
+                lbs.append(rs.randint(margins[i], data_shape[i+2] - crop_size[i] - margins[i]))
         else:
             lbs.append((data_shape[i+2] - crop_size[i]) // 2)
     return lbs
 
 
-def get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, seed=None):
+def get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, rs):
     """
 
     :param crop_size:
     :param data_shape: (b,c,x,y(,z)) must be the whole thing!
     :param anchor: random crop is constrained to include anchor point
-    :param seed:
+    :param rs: seeded random number generator
     :return:
     """
-    if seed is not None:
-        np.random.seed(seed)
-
     lbs = []
     for i in range(len(data_shape) - 2):
         margin_left = anchor[i]-crop_size[i]+1
@@ -69,7 +67,10 @@ def get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, seed=None
         if margin_left >= margin_right+ anchor[i]+1:
             lbs.append(0)
         else:
-            lbs.append(np.random.randint(margin_left, anchor[i]+margin_right+1))
+            if rs is None:
+                lbs.append(np.random.randint(margin_left, anchor[i]+margin_right+1))
+            else:
+                lbs.append(rs.randint(margin_left, anchor[i]+margin_right+1))
     return lbs
 
 
@@ -107,6 +108,12 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
     :param seed:
     :return:
     """
+
+    rs = None
+    if seed:
+        # generate seeded random number generator
+        rs = random.Random(seed)
+
     if not isinstance(data, (list, tuple, np.ndarray)):
         raise TypeError("data has to be either a numpy array or a list")
 
@@ -150,10 +157,10 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
         if crop_type == "center":
             lbs = get_lbs_for_center_crop(crop_size, data_shape_here)
         elif crop_type == "random":
-            lbs = get_lbs_for_random_crop(crop_size, data_shape_here, margins, seed)
+            lbs = get_lbs_for_random_crop(crop_size, data_shape_here, margins, rs)
             lbs_batch.append(lbs)
         elif crop_type == "constrained":
-            lbs = get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, seed)
+            lbs = get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, rs)
             lbs_batch.append(lbs)
         else:
             raise NotImplementedError("crop_type must be either center or random")
