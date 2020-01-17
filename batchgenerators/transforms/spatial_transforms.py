@@ -337,7 +337,10 @@ class SpatialTransform(AbstractTransform):
             else:
                 raise ValueError("only support 2D/3D batch data.")
         else:
+            if len(self.patch_size) != len(data.shape)-2:
+                raise ValueError("patch dimension does not match spatial dimension of data")
             patch_size = self.patch_size
+
 
         seed = self.rs.randint(0, 999999999)
 
