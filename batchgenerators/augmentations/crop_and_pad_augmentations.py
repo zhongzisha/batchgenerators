@@ -47,31 +47,29 @@ def get_lbs_for_random_crop(crop_size, data_shape, margins, rs):
     return lbs
 
 
-def get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, rs):
+def get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, margins):
     """
 
     :param crop_size:
     :param data_shape: (b,c,x,y(,z)) must be the whole thing!
     :param anchor: random crop is constrained to include anchor point
-    :param rs: seeded random number generator
+    :param margins:
     :return:
     """
     lbs = []
     for i in range(len(data_shape) - 2):
-        margin_left = anchor[i]-crop_size[i]+1
+        margin_left = anchor[i] - crop_size[i] + margins[i]
         if margin_left < 0:
             margin_left = 0
-        margin_right = data_shape[i+2]-(anchor[i]+crop_size[i])
+        margin_right = data_shape[i+2]-(anchor[i] + crop_size[i]) - margins[i]
         if margin_right > 0:
             margin_right = 0
-        if margin_left >= margin_right+ anchor[i]+1:
+        if margin_left >= margin_right + anchor[i]+1:
             lbs.append(0)
         else:
-            if rs is None:
-                lbs.append(np.random.randint(margin_left, anchor[i]+margin_right+1))
-            else:
-                lbs.append(rs.randint(margin_left, anchor[i]+margin_right+1))
+            lbs.append(np.random.randint(margin_left, anchor[i] + margin_right + 1))
     return lbs
+
 
 
 def get_lbs_for_center_crop(crop_size, data_shape):
@@ -123,6 +121,7 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
         if not isinstance(lm  (list, tuple, np.ndarray)):
             raise TypeError("data has to be either a numpy array or a list")
             lm_shape = tuple([len(lm)] + list(lm[0].shape))
+            assert lm_shape[0]==data_shape[0]
 
 
     data_shape = tuple([len(data)] + list(data[0].shape))
@@ -168,7 +167,7 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
             lbs = get_lbs_for_random_crop(crop_size, data_shape_here, margins, rs)
             lbs_batch.append(lbs)
         elif crop_type == "constrained":
-            lbs = get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, rs)
+            lbs = get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, margins)
             lbs_batch.append(lbs)
         else:
             raise NotImplementedError("crop_type must be either center or random")
