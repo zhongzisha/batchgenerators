@@ -43,6 +43,18 @@ def create_zero_centered_coordinate_mesh(shape):
     return coords
 
 
+def create_zero_centered_indices(indices, shape):
+    """
+
+    :param indices: number of landmarks per image x spatial dimension (x, y(, z))
+    :return: spatial dimension x number of landmarks as zero centered indices
+    """
+    indices_c = np.copy(indices)
+    for d in range(len(shape)):
+        indices_c[:, d] -= ((np.array(shape).astype(float) - 1) / 2.)[d]
+    return indices_c.T
+
+
 def convert_seg_image_to_one_hot_encoding(image, classes=None):
     '''
     image must be either (x, y, z) or (x, y)
