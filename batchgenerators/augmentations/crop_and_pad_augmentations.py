@@ -22,8 +22,8 @@ def center_crop(data, crop_size, seg=None):
     return crop(data, seg, crop_size, 0, 'center')
 
 
-def constrained_random_crop(data, seg=None, crop_size=128, margins=[0, 0, 0], return_params=False, anchor=[0, 0, 0]):
-    return crop(data, seg, crop_size, margins, 'constrained', return_params=return_params, anchor=anchor)
+def constrained_random_crop(data, seg=None, lm=None, crop_size=128, margins=[0, 0, 0], return_params=False, anchor=[0, 0, 0]):
+    return crop(data, seg, crop_size, margins, 'constrained', return_params=return_params, anchor=anchor, lm=lm)
 
 
 def get_lbs_for_random_crop(crop_size, data_shape, margins, rs):
@@ -88,7 +88,8 @@ def get_lbs_for_center_crop(crop_size, data_shape):
 
 def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
          pad_mode='constant', pad_kwargs={'constant_values': 0},
-         pad_mode_seg='constant', pad_kwargs_seg={'constant_values': 0}, return_params=False, anchor=None, seed=None):
+         pad_mode_seg='constant', pad_kwargs_seg={'constant_values': 0}, return_params=False, anchor=None, seed=None,
+         lm=None):
     """
     crops data and seg (seg may be None) to crop_size. Whether this will be achieved via center or random crop or
     constrained random crop is determined by crop_type. Margin will be respected only for random_crop and will prevent
@@ -98,6 +99,7 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
 
     :param data: b, c, x, y(, z)
     :param seg:
+    :param lm: b, n, d (n: number of landmarks, d: image dimension)
     :param crop_size:
     :param margins: distance from each border, can be int or list/tuple of ints (one element for each dimension).
     Can be negative (data/seg will be padded if needed)
@@ -116,6 +118,12 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
 
     if not isinstance(data, (list, tuple, np.ndarray)):
         raise TypeError("data has to be either a numpy array or a list")
+
+    if lm is not None:
+        if not isinstance(lm  (list, tuple, np.ndarray)):
+            raise TypeError("data has to be either a numpy array or a list")
+            lm_shape = tuple([len(lm)] + list(lm[0].shape))
+
 
     data_shape = tuple([len(data)] + list(data[0].shape))
     data_dtype = data[0].dtype
@@ -189,15 +197,19 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
             if seg_return is not None:
                 seg_return[b] = seg_cropped
 
-    if return_params:
-        if crop_type == "center":
-            lbs_return = np.asarray(lbs)
-        if crop_type == "random" or crop_type == "constrained":
-            lbs_return = np.asarray(lbs_batch)
-        return data_return, seg_return, lbs_return
+    if crop_type == "center":
+        lbs_return = np.asarray(lbs)
+    if crop_type == "random" or crop_type == "constrained":
+        lbs_return = np.asarray(lbs_batch)
 
-    else:
-        return data_return, seg_return
+    output = [data_return, seg_return]
+    if lm is not None:
+        lm = lm - np.repeat(np.expand_dims(lbs_return, axis=1), repeats=lm.shape[1], axis=1)
+        output.append(lm)
+    if return_params:
+        output.append(lbs_return)
+
+    return tuple(output)
 
 
 def random_crop(data, seg=None, crop_size=128, margins=[0, 0, 0], return_params=False, seed=None):
