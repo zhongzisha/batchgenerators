@@ -61,19 +61,23 @@ def get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, margins, 
     """
     lbs = []
     for i in range(len(data_shape) - 2):
-        margin_left = anchor[i] - crop_size[i] + margins[i]
+        margin_left = anchor[i] - margins[i]
         if margin_left < 0:
-            margin_left = 0
-        margin_right = data_shape[i+2]-(anchor[i] + crop_size[i]) - margins[i]
-        if margin_right > 0:
-            margin_right = 0
-        if margin_left >= margin_right + anchor[i]+1:
-            lbs.append(0)
+            margin_left = anchor[i]
+        margin_right = anchor[i] + margins[i]
+        if margin_right > data_shape[i+2]-crop_size[i]:
+            margin_right = data_shape[i+2]-crop_size[i]
+        if margin_left >= margin_right + anchor[i]:
+            lbs.append(int(anchor[i] - crop_size[i]//2))
         else:
+            print("left: ", margin_left)
+            print("right: ", margin_right)
             if rs is None:
-                lbs.append(np.random.randint(margin_left, anchor[i] + margin_right + 1))
+                a = np.random.randint(margin_left-crop_size[i]//2, margin_right-crop_size[i]//2 + 1)
+                print(a)
+                lbs.append(a)
             else:
-                lbs.append(rs.randint(margin_left, anchor[i] + margin_right + 1))
+                lbs.append(rs.randint(margin_left-crop_size[i]//2, margin_right-crop_size[i]//2 + 1))
     return lbs
 
 
@@ -173,7 +177,7 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
             lbs = get_lbs_for_random_crop(crop_size, data_shape_here, margins, rs)
             lbs_batch.append(lbs)
         elif crop_type == "constrained":
-            lbs = get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, margins, rs)
+            lbs = get_lbs_for_constrained_random_crop(crop_size, data_shape_here, anchor, margins, rs)
             lbs_batch.append(lbs)
         else:
             raise NotImplementedError("crop_type must be either center or random")
