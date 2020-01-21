@@ -62,12 +62,12 @@ def get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, margins, 
     lbs = []
     for i in range(len(data_shape) - 2):
         margin_left = anchor[i] - margins[i]
-        if margin_left < 0:
+        if margin_left-crop_size[i]//2 < 0:
             margin_left = anchor[i]
         margin_right = anchor[i] + margins[i]
         if margin_right > data_shape[i+2]-crop_size[i]//2:
             margin_right = data_shape[i+2]-crop_size[i]//2
-        if margin_left >= margin_right + anchor[i]:
+        if margin_left-crop_size[i]//2 >= margin_right-crop_size[i]//2:
             lbs.append(int(anchor[i] - crop_size[i]//2))
         else:
             if rs is None:
