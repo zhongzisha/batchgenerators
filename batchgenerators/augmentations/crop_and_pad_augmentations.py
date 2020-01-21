@@ -72,7 +72,6 @@ def get_lbs_for_constrained_random_crop(crop_size, data_shape, anchor, margins, 
         else:
             if rs is None:
                 a = np.random.randint(margin_left-crop_size[i]//2, margin_right-crop_size[i]//2 + 1)
-                print(a)
                 lbs.append(a)
             else:
                 lbs.append(rs.randint(margin_left-crop_size[i]//2, margin_right-crop_size[i]//2 + 1))
