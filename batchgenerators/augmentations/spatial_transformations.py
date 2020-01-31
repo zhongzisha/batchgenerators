@@ -23,7 +23,7 @@ from batchgenerators.augmentations.utils import create_zero_centered_coordinate_
     interpolate_img, \
     rotate_coords_2d, rotate_coords_3d, scale_coords, resize_segmentation, resize_multichannel_image, \
     elastic_deform_coordinates_2, \
-    create_zero_centered_indices
+    create_zero_centered_indices, rotate_coords_3d_inverse
 from batchgenerators.augmentations.crop_and_pad_augmentations import random_crop as random_crop_aug
 from batchgenerators.augmentations.crop_and_pad_augmentations import center_crop as center_crop_aug
 
@@ -200,6 +200,20 @@ def augment_spatial(data, seg, patch_size, lm=None, patch_center_dist_from_borde
     if seed is not None:
         np.random.seed(seed)
 
+    seg_result = None
+    if seg is not None:
+        if dim == 2:
+            seg_result = np.zeros((seg.shape[0], seg.shape[1], patch_size[0], patch_size[1]), dtype=np.float32)
+        else:
+            seg_result = np.zeros((seg.shape[0], seg.shape[1], patch_size[0], patch_size[1], patch_size[2]),
+                                  dtype=np.float32)
+
+    if dim == 2:
+        data_result = np.zeros((data.shape[0], data.shape[1], patch_size[0], patch_size[1]), dtype=np.float32)
+    else:
+        data_result = np.zeros((data.shape[0], data.shape[1], patch_size[0], patch_size[1], patch_size[2]),
+                               dtype=np.float32)
+
     if not isinstance(patch_center_dist_from_border, (list, tuple, np.ndarray)):
         patch_center_dist_from_border = dim * [patch_center_dist_from_border]
 
@@ -244,11 +258,11 @@ def augment_spatial(data, seg, patch_size, lm=None, patch_center_dist_from_borde
                         a_z = np.random.uniform(angle_z[0], angle_z[1])
                 coords = rotate_coords_3d(coords, a_x, a_y, a_z)
                 if lm is not None:
-                    lm_centered = rotate_coords_3d(lm_centered, a_x, a_y, a_z)
+                    lm_centered = rotate_coords_3d_inverse(lm_centered, a_x, a_y, a_z)
             else:
                 coords = rotate_coords_2d(coords, a_x)
                 if lm is not None:
-                    lm_centered = rotate_coords_2d(lm_centered, a_x)
+                    lm_centered = rotate_coords_2d(lm_centered, -a_x)
             modified_coords = True
             if dim == 3:
                 spatial_aug_batch['rotation'].append([a_x, a_y, a_z])
@@ -262,7 +276,7 @@ def augment_spatial(data, seg, patch_size, lm=None, patch_center_dist_from_borde
                 sc = np.random.uniform(max(scale[0], 1), scale[1])
             coords = scale_coords(coords, sc)
             if lm is not None:
-                lm_centered = scale_coords(lm_centered, sc)
+                lm_centered = scale_coords(lm_centered, 1/sc)
             modified_coords = True
             spatial_aug_batch['scale'].append(sc)
 
@@ -273,17 +287,17 @@ def augment_spatial(data, seg, patch_size, lm=None, patch_center_dist_from_borde
                     ctr = np.random.uniform(patch_center_dist_from_border[d],
                                             data.shape[d + 2] - patch_center_dist_from_border[d])
                 else:
-                    ctr = int(np.round(data.shape[d + 2] / 2.))
+                    ctr = (data.shape[d + 2] - 1) / 2.  #int(np.round(data.shape[d + 2] / 2.))
                 spatial_aug_batch['random_crop'].append(ctr)
                 coords[d] += ctr
                 if lm is not None:
                     lm_centered[d] += ctr
             for channel_id in range(data.shape[1]):
-                data[sample_id, channel_id] = interpolate_img(data[sample_id, channel_id], coords, order_data,
+                data_result[sample_id, channel_id] = interpolate_img(data[sample_id, channel_id], coords, order_data,
                                                                      border_mode_data, cval=border_cval_data)
             if seg is not None:
                 for channel_id in range(seg.shape[1]):
-                    seg[sample_id, channel_id] = interpolate_img(seg[sample_id, channel_id], coords, order_seg,
+                    seg_result[sample_id, channel_id] = interpolate_img(seg[sample_id, channel_id], coords, order_seg,
                                                                         border_mode_seg, cval=border_cval_seg, is_seg=True)
             if lm is not None:
                 lm[sample_id] = lm_centered.T
@@ -306,15 +320,15 @@ def augment_spatial(data, seg, patch_size, lm=None, patch_center_dist_from_borde
             else:
                 d, s = out_tuple
 
-            data[sample_id] = d[0]
+            data_result[sample_id] = d[0]
             if seg is not None:
-                seg[sample_id] = s[0]
+                seg_result[sample_id] = s[0]
             if lm is not None:
                 lm[sample_id] = l[0]
 
-    output = [data, seg]
+    output = [data_result, seg_result]
     if lm is not None:
-        output.append(lm)
+        output.append(np.round(lm))
 
     if return_params:
         transform_params = {key: np.array(spatial_aug_batch[key]) for key in spatial_aug_batch if spatial_aug_batch[key]}

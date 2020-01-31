@@ -22,8 +22,8 @@ def center_crop(data, crop_size, seg=None, lm=None):
     return crop(data, seg, crop_size, 0, 'center', lm=lm)
 
 
-def constrained_random_crop(data, seg=None, lm=None, crop_size=128, margins=[0, 0, 0], return_params=False,
-                            anchor=[0, 0, 0], seed=None):
+def constrained_random_crop(data, seg=None, lm=None, crop_size=128, margins=None, return_params=False,
+                            anchor=None, seed=None):
     return crop(data, seg, crop_size, margins, 'constrained', return_params=return_params, anchor=anchor, lm=lm,
                 seed=seed)
 
@@ -174,7 +174,10 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
             lbs = get_lbs_for_random_crop(crop_size, data_shape_here, margins, rs)
             lbs_batch.append(lbs)
         elif crop_type == "constrained":
-            lbs = get_lbs_for_constrained_random_crop(crop_size, data_shape_here, anchor, margins, rs)
+            if anchor is None:
+                lbs = get_lbs_for_center_crop(crop_size, data_shape_here)
+            else:
+                lbs = get_lbs_for_constrained_random_crop(crop_size, data_shape_here, anchor, margins, rs)
             lbs_batch.append(lbs)
         else:
             raise NotImplementedError("crop_type must be either center or random")

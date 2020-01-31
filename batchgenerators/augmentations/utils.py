@@ -127,6 +127,15 @@ def rotate_coords_3d(coords, angle_x, angle_y, angle_z):
     return coords
 
 
+def rotate_coords_3d_inverse(coords, angle_x, angle_y, angle_z):
+    rot_matrix = np.identity(len(coords))
+    rot_matrix = create_matrix_rotation_z_3d(-angle_z, rot_matrix)
+    rot_matrix = create_matrix_rotation_y_3d(-angle_y, rot_matrix)
+    rot_matrix = create_matrix_rotation_x_3d(-angle_x, rot_matrix)
+    coords = np.dot(coords.reshape(len(coords), -1).transpose(), rot_matrix).transpose().reshape(coords.shape)
+    return coords
+
+
 def rotate_coords_2d(coords, angle):
     rot_matrix = create_matrix_rotation_2d(angle)
     coords = np.dot(coords.reshape(len(coords), -1).transpose(), rot_matrix).transpose().reshape(coords.shape)
