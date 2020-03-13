@@ -210,13 +210,14 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
         lbs_return = np.expand_dims(np.asarray(lbs), 0)
     if crop_type == "random" or crop_type == "constrained":
         lbs_return = np.asarray(lbs_batch)
+    crop_aug_batch = {'random_crop': lbs_return}
 
     output = [data_return, seg_return]
     if lm is not None:
         lm = lm - np.repeat(np.expand_dims(lbs_return, axis=1), repeats=lm.shape[1], axis=1)
         output.append(lm)
     if return_params:
-        output.append(lbs_return)
+        output.append(crop_aug_batch)
 
     return tuple(output)
 

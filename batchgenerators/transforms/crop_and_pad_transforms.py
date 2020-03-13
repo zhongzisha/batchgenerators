@@ -96,8 +96,12 @@ class RandomCropTransform(AbstractTransform):
         seed = self.rs.randint(0, 999999999)
 
         if self.return_params:
-            data, seg, data_dict["aug_params"]["random_crop"] = random_crop(data, seg, self.crop_size, self.margins,
-                                                                            return_params=self.return_params, seed=seed)
+            data, seg, aug_params = random_crop(data, seg, self.crop_size, self.margins,
+                                                             return_params=self.return_params, seed=seed)
+            if "aug_params" in data_dict:
+                data_dict["aug_params"].update(aug_params)
+            else:
+                data_dict["aug_params"] = aug_params
         else:
             data, seg = random_crop(data, seg, self.crop_size, self.margins, seed=seed)
 
