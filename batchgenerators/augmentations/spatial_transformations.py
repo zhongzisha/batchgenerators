@@ -268,6 +268,11 @@ def augment_spatial(data, seg, patch_size, lm=None, patch_center_dist_from_borde
                 spatial_aug_batch['rotation'].append([a_x, a_y, a_z])
             else:
                 spatial_aug_batch['rotation'].append(a_x)
+        else:
+            if dim == 3:
+                spatial_aug_batch['rotation'].append([0, 0, 0])
+            else:
+                spatial_aug_batch['rotation'].append(0)
 
         if np.random.uniform() < p_scale_per_sample and do_scale:
             if np.random.random() < 0.5 and scale[0] < 1:
@@ -288,7 +293,7 @@ def augment_spatial(data, seg, patch_size, lm=None, patch_center_dist_from_borde
                                             data.shape[d + 2] - patch_center_dist_from_border[d])
                 else:
                     ctr = (data.shape[d + 2] - 1) / 2.  #int(np.round(data.shape[d + 2] / 2.))
-                spatial_aug_batch['random_crop'].append(ctr)
+                spatial_aug_batch['random_crop'].append(ctr-patch_size[d]//2)  # center to left corner
                 coords[d] += ctr
                 if lm is not None:
                     lm_centered[d] += ctr
@@ -312,13 +317,19 @@ def augment_spatial(data, seg, patch_size, lm=None, patch_center_dist_from_borde
                 l = lm[sample_id:sample_id + 1]
             if random_crop:
                 margin = [patch_center_dist_from_border[d] - patch_size[d] // 2 for d in range(dim)]
-                out_tuple = random_crop_aug(data[sample_id:sample_id + 1], s, patch_size, margin, lm=l, seed=seed)
+                out_tuple = random_crop_aug(data[sample_id:sample_id + 1], s, patch_size, margin, lm=l, seed=seed,
+                                            return_params=return_params)
             else:
                 out_tuple = center_crop_aug(data[sample_id:sample_id + 1], patch_size, s, lm=l)
+
+            d, s = out_tuple[0:2]
             if lm is not None:
-                d, s, l = out_tuple
-            else:
-                d, s = out_tuple
+                l = out_tuple[2]
+                if return_params:
+                    spatial_aug_batch["random_crop"].extend(out_tuple[3]["random_crop"].tolist()[0])
+            elif lm is None and return_params:
+                spatial_aug_batch["random_crop"].extend(out_tuple[2]["random_crop"].tolist()[0])
+
 
             data_result[sample_id] = d[0]
             if seg is not None:
@@ -332,6 +343,7 @@ def augment_spatial(data, seg, patch_size, lm=None, patch_center_dist_from_borde
 
     if return_params:
         transform_params = {key: np.array(spatial_aug_batch[key]) for key in spatial_aug_batch if spatial_aug_batch[key]}
+        transform_params["random_crop"] = np.reshape(transform_params["random_crop"], (-1, 2))
         output.append(transform_params)
     return tuple(output)
 
