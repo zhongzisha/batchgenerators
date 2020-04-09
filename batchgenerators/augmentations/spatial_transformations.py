@@ -320,7 +320,7 @@ def augment_spatial(data, seg, patch_size, lm=None, patch_center_dist_from_borde
                 out_tuple = random_crop_aug(data[sample_id:sample_id + 1], s, patch_size, margin, lm=l, seed=seed,
                                             return_params=return_params)
             else:
-                out_tuple = center_crop_aug(data[sample_id:sample_id + 1], patch_size, s, lm=l)
+                out_tuple = center_crop_aug(data[sample_id:sample_id + 1], patch_size, s, lm=l, return_params=return_params)
 
             d, s = out_tuple[0:2]
             if lm is not None:
@@ -343,7 +343,7 @@ def augment_spatial(data, seg, patch_size, lm=None, patch_center_dist_from_borde
 
     if return_params:
         transform_params = {key: np.array(spatial_aug_batch[key]) for key in spatial_aug_batch if spatial_aug_batch[key]}
-        transform_params["random_crop"] = np.reshape(transform_params["random_crop"], (-1, 2))
+        transform_params["random_crop"] = np.reshape(transform_params["random_crop"], (-1, dim))
         output.append(transform_params)
     return tuple(output)
 

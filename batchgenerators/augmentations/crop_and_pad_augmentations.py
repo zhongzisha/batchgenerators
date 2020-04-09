@@ -18,8 +18,8 @@ from batchgenerators.augmentations.utils import pad_nd_image
 import random
 
 
-def center_crop(data, crop_size, seg=None, lm=None):
-    return crop(data, seg, crop_size, 0, 'center', lm=lm)
+def center_crop(data, crop_size, seg=None, lm=None, return_params=False):
+    return crop(data, seg, crop_size, 0, 'center', lm=lm, return_params=return_params)
 
 
 def constrained_random_crop(data, seg=None, lm=None, crop_size=128, margins=None, return_params=False,
