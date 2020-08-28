@@ -112,6 +112,18 @@ class LandmarkTransform2D(unittest.TestCase):
         np.testing.assert_array_equal(index_out, np.round(lm_out[0, 0]),
                                       err_msg="Heatmap segmentation maximum and transformed landmark are not equal.")
 
+    def test_2D_elastic_deform(self):
+        data_out, seg_out, lm_out = augment_spatial(data=np.copy(self.data_2D), seg=np.copy(self.seg_2D),
+                                                    patch_size=self.patch_size, lm=np.copy(self.lm),
+                                                    do_elastic_deform=True,
+                                                    do_rotation=False, angle_x=(0, 0), do_scale=False,
+                                                    random_crop=False, alpha=(0., 1000.), sigma=(40., 60.))
+
+        index_out = np.unravel_index(np.argmax(seg_out[0, 0]), seg_out[0, 0].shape)
+
+        np.testing.assert_array_equal(np.round(lm_out[0, 0]), np.array(index_out),
+                                      err_msg="Segmentation index and Landmark not the same.")
+
 
 class LandmarkTransform3D(unittest.TestCase):
     def setUp(self):
@@ -154,6 +166,18 @@ class LandmarkTransform3D(unittest.TestCase):
 
         np.testing.assert_array_almost_equal(self.data_3D_input, data_out, decimal=6,
                                              err_msg="Input and Output data not the same.")
+        np.testing.assert_array_equal(np.round(lm_out[0, 0]), np.array(index_out),
+                                      err_msg="Segmentation index and Landmark not the same.")
+
+    def test_3D_elastic_deform(self):
+        data_out, seg_out, lm_out = augment_spatial(data=np.copy(self.data_3D), seg=np.copy(self.seg_3D),
+                                                    patch_size=self.patch_size, lm=np.copy(self.lm),
+                                                    do_elastic_deform=True,
+                                                    do_rotation=False, angle_x=(0, 0), do_scale=False,
+                                                    random_crop=False, alpha=(0., 900.), sigma=(20., 30.))
+
+        index_out = np.unravel_index(np.argmax(seg_out[0, 0]), seg_out[0, 0].shape)
+
         np.testing.assert_array_equal(np.round(lm_out[0, 0]), np.array(index_out),
                                       err_msg="Segmentation index and Landmark not the same.")
 

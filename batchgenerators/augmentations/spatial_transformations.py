@@ -228,16 +228,24 @@ def augment_spatial(data, seg, patch_size, lm=None, patch_center_dist_from_borde
         modified_coords = False
 
         if lm is not None:
-            lm_centered = create_zero_centered_indices(indices=lm[sample_id], shape=patch_size)
+            lm_orig = lm[sample_id]
+            lm_centered = create_zero_centered_indices(indices=lm_orig, shape=patch_size)
 
         if do_elastic_deform and np.random.uniform() < p_el_per_sample:
             a = np.random.uniform(alpha[0], alpha[1])
             s = np.random.uniform(sigma[0], sigma[1])
-            coords = elastic_deform_coordinates(coords, a, s)
+            coords, offsets = elastic_deform_coordinates(coords, a, s)
             modified_coords = True
 
             if lm is not None:
-                lm_centered = elastic_deform_coordinates(lm_centered, a, s)
+                offsets_lm = np.zeros(lm_centered.shape)
+                for n in range(offsets_lm.shape[-1]):
+                    lm_index = lm_orig[n].astype(np.int)
+                    if dim == 2:
+                        offsets_lm[:, n] = offsets[:, lm_index[0], lm_index[1]]
+                    else:
+                        offsets_lm[:, n] = offsets[:, lm_index[0], lm_index[1], lm_index[2]]
+                lm_centered = lm_centered - offsets_lm
 
         if do_rotation and np.random.uniform() < p_rot_per_sample:
 

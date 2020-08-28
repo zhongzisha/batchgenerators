@@ -93,7 +93,8 @@ def elastic_deform_coordinates(coordinates, alpha, sigma):
             gaussian_filter((np.random.random(coordinates.shape[1:]) * 2 - 1), sigma, mode="constant", cval=0) * alpha)
     offsets = np.array(offsets)
     indices = offsets + coordinates
-    return indices
+
+    return indices, offsets
 
 
 def elastic_deform_coordinates_2(coordinates, sigmas, magnitudes):
