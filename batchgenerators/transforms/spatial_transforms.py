@@ -191,9 +191,10 @@ class MirrorTransform(AbstractTransform):
 
     """
 
-    def __init__(self, axes=(0, 1, 2), data_key="data", label_key="seg"):
+    def __init__(self, axes=(0, 1, 2), data_key="data", label_key="seg", lm_key="landmark"):
         self.data_key = data_key
         self.label_key = label_key
+        self.lm_key = lm_key
         self.axes = axes
         if max(axes) > 2:
             raise ValueError("MirrorTransform now takes the axes as the spatial dimensions. What previously was "
@@ -203,19 +204,24 @@ class MirrorTransform(AbstractTransform):
     def __call__(self, **data_dict):
         data = data_dict.get(self.data_key)
         seg = data_dict.get(self.label_key)
+        lm = data_dict.get(self.lm_key)
 
         for b in range(len(data)):
             sample_seg = None
             if seg is not None:
                 sample_seg = seg[b]
-            ret_val = augment_mirroring(data[b], sample_seg, axes=self.axes)
+            ret_val = augment_mirroring(data[b], sample_seg, axes=self.axes, lm=lm[b])
             data[b] = ret_val[0]
             if seg is not None:
                 seg[b] = ret_val[1]
+            if lm is not None:
+                lm[b] = ret_val[2]
 
         data_dict[self.data_key] = data
         if seg is not None:
             data_dict[self.label_key] = seg
+        if lm is not None:
+            data_dict[self.lm_key] = lm
 
         return data_dict
 
@@ -300,7 +306,7 @@ class SpatialTransform(AbstractTransform):
                  do_rotation=True, angle_x=(0, 2 * np.pi), angle_y=(0, 2 * np.pi), angle_z=(0, 2 * np.pi),
                  do_scale=True, scale=(0.75, 1.25), border_mode_data='nearest', border_cval_data=0, order_data=3,
                  border_mode_seg='constant', border_cval_seg=0, order_seg=0, random_crop=True, data_key="data",
-                 label_key="seg", p_el_per_sample=1, p_scale_per_sample=1, p_rot_per_sample=1,
+                 label_key="seg", lm_key="landmark", p_el_per_sample=1, p_scale_per_sample=1, p_rot_per_sample=1,
                  independent_scale_for_each_axis=False, p_rot_per_axis:float=1, p_independent_scale_per_axis: int=1):
         self.independent_scale_for_each_axis = independent_scale_for_each_axis
         self.p_rot_per_sample = p_rot_per_sample
@@ -308,6 +314,7 @@ class SpatialTransform(AbstractTransform):
         self.p_el_per_sample = p_el_per_sample
         self.data_key = data_key
         self.label_key = label_key
+        self.lm_key = lm_key
         self.patch_size = patch_size
         self.patch_center_dist_from_border = patch_center_dist_from_border
         self.do_elastic_deform = do_elastic_deform
@@ -332,6 +339,7 @@ class SpatialTransform(AbstractTransform):
     def __call__(self, **data_dict):
         data = data_dict.get(self.data_key)
         seg = data_dict.get(self.label_key)
+        lm = data_dict.get(self.lm_key)
 
         if self.patch_size is None:
             if len(data.shape) == 4:
@@ -356,10 +364,13 @@ class SpatialTransform(AbstractTransform):
                                   p_rot_per_sample=self.p_rot_per_sample,
                                   independent_scale_for_each_axis=self.independent_scale_for_each_axis,
                                   p_rot_per_axis=self.p_rot_per_axis, 
-                                  p_independent_scale_per_axis=self.p_independent_scale_per_axis)
+                                  p_independent_scale_per_axis=self.p_independent_scale_per_axis,
+                                  lm=lm)
         data_dict[self.data_key] = ret_val[0]
         if seg is not None:
             data_dict[self.label_key] = ret_val[1]
+        if lm is not None:
+            data_dict[self.lm_key] = ret_val[2]
 
         return data_dict
 

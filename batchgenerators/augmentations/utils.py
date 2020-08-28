@@ -45,6 +45,18 @@ def create_zero_centered_coordinate_mesh(shape):
     return coords
 
 
+def create_zero_centered_indices(indices, shape):
+    """
+
+    :param indices: number of landmarks per image x spatial dimension (x, y(, z))
+    :return: spatial dimension x number of landmarks as zero centered indices
+    """
+    indices_c = np.copy(indices)
+    for d in range(len(shape)):
+        indices_c[:, d] -= ((np.array(shape).astype(float) - 1) / 2.)[d]
+    return indices_c.T
+
+
 def convert_seg_image_to_one_hot_encoding(image, classes=None):
     '''
     image must be either (x, y, z) or (x, y)
@@ -88,8 +100,8 @@ def elastic_deform_coordinates_2(coordinates, sigmas, magnitudes):
     '''
     magnitude can be a tuple/list
     :param coordinates:
-    :param sigma:
-    :param magnitude:
+    :param sigmas:
+    :param magnitudes:
     :return:
     '''
     if not isinstance(magnitudes, (tuple, list)):
@@ -116,6 +128,15 @@ def rotate_coords_3d(coords, angle_x, angle_y, angle_z):
     rot_matrix = create_matrix_rotation_x_3d(angle_x, rot_matrix)
     rot_matrix = create_matrix_rotation_y_3d(angle_y, rot_matrix)
     rot_matrix = create_matrix_rotation_z_3d(angle_z, rot_matrix)
+    coords = np.dot(coords.reshape(len(coords), -1).transpose(), rot_matrix).transpose().reshape(coords.shape)
+    return coords
+
+
+def rotate_coords_3d_inverse(coords, angle_x, angle_y, angle_z):
+    rot_matrix = np.identity(len(coords))
+    rot_matrix = create_matrix_rotation_z_3d(-angle_z, rot_matrix)
+    rot_matrix = create_matrix_rotation_y_3d(-angle_y, rot_matrix)
+    rot_matrix = create_matrix_rotation_x_3d(-angle_x, rot_matrix)
     coords = np.dot(coords.reshape(len(coords), -1).transpose(), rot_matrix).transpose().reshape(coords.shape)
     return coords
 

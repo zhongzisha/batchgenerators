@@ -17,8 +17,8 @@ import numpy as np
 from batchgenerators.augmentations.utils import pad_nd_image
 
 
-def center_crop(data, crop_size, seg=None):
-    return crop(data, seg, crop_size, 0, 'center')
+def center_crop(data, crop_size, seg=None, lm=None):
+    return crop(data, seg, crop_size, 0, 'center', lm=lm)
 
 
 def get_lbs_for_random_crop(crop_size, data_shape, margins):
@@ -52,7 +52,8 @@ def get_lbs_for_center_crop(crop_size, data_shape):
 
 def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
          pad_mode='constant', pad_kwargs={'constant_values': 0},
-         pad_mode_seg='constant', pad_kwargs_seg={'constant_values': 0}):
+         pad_mode_seg='constant', pad_kwargs_seg={'constant_values': 0},
+         lm=None):
     """
     crops data and seg (seg may be None) to crop_size. Whether this will be achieved via center or random crop is
     determined by crop_type. Margin will be respected only for random_crop and will prevent the crops form being closer
@@ -62,6 +63,7 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
 
     :param data: b, c, x, y(, z)
     :param seg:
+    :param lm: b, n, d (n: number of landmarks, d: image dimension)
     :param crop_size:
     :param margins: distance from each border, can be int or list/tuple of ints (one element for each dimension).
     Can be negative (data/seg will be padded if needed)
@@ -70,6 +72,14 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
     """
     if not isinstance(data, (list, tuple, np.ndarray)):
         raise TypeError("data has to be either a numpy array or a list")
+
+    if lm is not None:
+        if not isinstance(lm, (list, tuple, np.ndarray)):
+            raise TypeError("data has to be either a numpy array or a list")
+            lm_shape = tuple([len(lm)] + list(lm[0].shape))
+            assert len(lm_shape) == 3, "lm should habe three dimensions (batch, lm per image, image dimension)"
+            assert lm_shape[0] == data_shape[0], "lm first dimension should be equal to batch size"
+            assert lm_shape[2] == len(data_shape) - 2, "lm has wrong image dimension"
 
     data_shape = tuple([len(data)] + list(data[0].shape))
     data_dtype = data[0].dtype
@@ -102,6 +112,7 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
     else:
         seg_return = None
 
+    lbs_batch = []
     for b in range(data_shape[0]):
         data_shape_here = [data_shape[0]] + list(data[b].shape)
         if seg is not None:
@@ -111,6 +122,7 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
             lbs = get_lbs_for_center_crop(crop_size, data_shape_here)
         elif crop_type == "random":
             lbs = get_lbs_for_random_crop(crop_size, data_shape_here, margins)
+            lbs_batch.append(lbs)
         else:
             raise NotImplementedError("crop_type must be either center or random")
 
@@ -138,11 +150,21 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
             if seg_return is not None:
                 seg_return[b] = seg_cropped
 
-    return data_return, seg_return
+    if crop_type == "center":
+        lbs_return = np.expand_dims(np.asarray(lbs), 0)
+    if crop_type == "random":
+        lbs_return = np.asarray(lbs_batch)
+
+    output = [data_return, seg_return]
+    if lm is not None:
+        lm = lm - np.repeat(np.expand_dims(lbs_return, axis=1), repeats=lm.shape[1], axis=1)
+        output.append(lm)
+
+    return tuple(output)
 
 
-def random_crop(data, seg=None, crop_size=128, margins=[0, 0, 0]):
-    return crop(data, seg, crop_size, margins, 'random')
+def random_crop(data, seg=None, crop_size=128, margins=[0, 0, 0], lm=None):
+    return crop(data, seg, crop_size, margins, 'random', lm=lm)
 
 
 def pad_nd_image_and_seg(data, seg, new_shape=None, must_be_divisible_by=None, pad_mode_data='constant',
