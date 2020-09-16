@@ -115,7 +115,7 @@ def augment_zoom(sample_data, sample_seg, zoom_factors, order=3, order_seg=1, cv
     return sample_data, target_seg
 
 
-def augment_mirroring(sample_data, sample_seg=None, axes=(0, 1, 2)):
+def augment_mirroring(sample_data, sample_seg=None, sample_heatmap=None, axes=(0, 1, 2)):
     if (len(sample_data.shape) != 3) and (len(sample_data.shape) != 4):
         raise Exception(
             "Invalid dimension for sample_data and sample_seg. sample_data and sample_seg should be either "
@@ -124,16 +124,22 @@ def augment_mirroring(sample_data, sample_seg=None, axes=(0, 1, 2)):
         sample_data[:, :] = sample_data[:, ::-1]
         if sample_seg is not None:
             sample_seg[:, :] = sample_seg[:, ::-1]
+        if sample_heatmap is not None:
+            sample_heatmap[:, :] = sample_heatmap[:, ::-1]
     if 1 in axes and np.random.uniform() < 0.5:
         sample_data[:, :, :] = sample_data[:, :, ::-1]
         if sample_seg is not None:
             sample_seg[:, :, :] = sample_seg[:, :, ::-1]
+        if sample_heatmap is not None:
+            sample_heatmap[:, :, :] = sample_heatmap[:, :, ::-1]
     if 2 in axes and len(sample_data.shape) == 4:
         if np.random.uniform() < 0.5:
             sample_data[:, :, :, :] = sample_data[:, :, :, ::-1]
             if sample_seg is not None:
                 sample_seg[:, :, :, :] = sample_seg[:, :, :, ::-1]
-    return sample_data, sample_seg
+            if sample_heatmap is not None:
+                sample_heatmap[:, :, :, :] = sample_heatmap[:, :, :, ::-1]
+    return sample_data, sample_seg, sample_heatmap
 
 
 def augment_channel_translation(data, const_channel=0, max_shifts=None):
@@ -187,7 +193,7 @@ def augment_channel_translation(data, const_channel=0, max_shifts=None):
     return data_return
 
 
-def augment_spatial(data, seg, patch_size, patch_center_dist_from_border=30,
+def augment_spatial(data, seg, heatmap, patch_size, patch_center_dist_from_border=30,
                     do_elastic_deform=True, alpha=(0., 1000.), sigma=(10., 13.),
                     do_rotation=True, angle_x=(0, 2 * np.pi), angle_y=(0, 2 * np.pi), angle_z=(0, 2 * np.pi),
                     do_scale=True, scale=(0.75, 1.25), border_mode_data='nearest', border_cval_data=0, order_data=3,
@@ -202,6 +208,15 @@ def augment_spatial(data, seg, patch_size, patch_center_dist_from_border=30,
         else:
             seg_result = np.zeros((seg.shape[0], seg.shape[1], patch_size[0], patch_size[1], patch_size[2]),
                                   dtype=np.float32)
+    heatmap_result = None
+    if heatmap is not None:
+        if dim == 2:
+            heatmap_result = np.zeros((heatmap.shape[0], heatmap.shape[1],
+                                       patch_size[0], patch_size[1]), dtype=np.float32)
+        else:
+            heatmap_result = np.zeros((heatmap.shape[0], heatmap.shape[1],
+                                       patch_size[0], patch_size[1], patch_size[2]),
+                                      dtype=np.float32)
 
     if dim == 2:
         data_result = np.zeros((data.shape[0], data.shape[1], patch_size[0], patch_size[1]), dtype=np.float32)
@@ -279,23 +294,36 @@ def augment_spatial(data, seg, patch_size, patch_center_dist_from_border=30,
                     seg_result[sample_id, channel_id] = interpolate_img(seg[sample_id, channel_id], coords, order_seg,
                                                                         border_mode_seg, cval=border_cval_seg,
                                                                         is_seg=True)
+            if heatmap is not None:
+                for channel_id in range(heatmap.shape[1]):
+                    heatmap_result[sample_id, channel_id] = interpolate_img(heatmap[sample_id, channel_id],
+                                                                            coords, order_seg,
+                                                                            border_mode_seg, cval=border_cval_seg,
+                                                                            is_seg=False)
         else:
             if seg is None:
                 s = None
             else:
                 s = seg[sample_id:sample_id + 1]
+
+            if heatmap is None:
+                h = None
+            else:
+                h = heatmap[sample_id:sample_id + 1]
             if random_crop:
                 margin = [patch_center_dist_from_border[d] - patch_size[d] // 2 for d in range(dim)]
-                d, s = random_crop_aug(data[sample_id:sample_id + 1], s, patch_size, margin)
+                d, s, h = random_crop_aug(data[sample_id:sample_id + 1], s, h, patch_size, margin)
             else:
-                d, s = center_crop_aug(data[sample_id:sample_id + 1], patch_size, s)
+                d, s, h = center_crop_aug(data[sample_id:sample_id + 1], patch_size, s, h)
             data_result[sample_id] = d[0]
             if seg is not None:
                 seg_result[sample_id] = s[0]
-    return data_result, seg_result
+            if heatmap is not None:
+                heatmap_result[sample_id] = h[0]
+    return data_result, seg_result, heatmap_result
 
 
-def augment_spatial_2(data, seg, patch_size, patch_center_dist_from_border=30,
+def augment_spatial_2(data, seg, heatmap, patch_size, patch_center_dist_from_border=30,
                       do_elastic_deform=True, deformation_scale=(0, 0.25),
                       do_rotation=True, angle_x=(0, 2 * np.pi), angle_y=(0, 2 * np.pi), angle_z=(0, 2 * np.pi),
                       do_scale=True, scale=(0.75, 1.25), border_mode_data='nearest', border_cval_data=0, order_data=3,
@@ -306,6 +334,7 @@ def augment_spatial_2(data, seg, patch_size, patch_center_dist_from_border=30,
 
     :param data:
     :param seg:
+    :param heatmap:
     :param patch_size:
     :param patch_center_dist_from_border:
     :param do_elastic_deform:
@@ -341,6 +370,13 @@ def augment_spatial_2(data, seg, patch_size, patch_center_dist_from_border=30,
             seg_result = np.zeros((seg.shape[0], seg.shape[1], patch_size[0], patch_size[1]), dtype=np.float32)
         else:
             seg_result = np.zeros((seg.shape[0], seg.shape[1], patch_size[0], patch_size[1], patch_size[2]),
+                                  dtype=np.float32)
+    heatmap_result = None
+    if heatmap is not None:
+        if dim == 2:
+            heatmap_result = np.zeros((heatmap.shape[0], heatmap.shape[1], patch_size[0], patch_size[1]), dtype=np.float32)
+        else:
+            heatmap_result = np.zeros((heatmap.shape[0], heatmap.shape[1], patch_size[0], patch_size[1], patch_size[2]),
                                   dtype=np.float32)
 
     if dim == 2:
@@ -446,20 +482,31 @@ def augment_spatial_2(data, seg, patch_size, patch_center_dist_from_border=30,
                     seg_result[sample_id, channel_id] = interpolate_img(seg[sample_id, channel_id], coords, order_seg,
                                                                         border_mode_seg, cval=border_cval_seg,
                                                                         is_seg=True)
+            if heatmap is not None:
+                for channel_id in range(heatmap.shape[1]):
+                    heatmap_result[sample_id, channel_id] = interpolate_img(heatmap[sample_id, channel_id], coords, order_seg,
+                                                                        border_mode_seg, cval=border_cval_seg,
+                                                                        is_seg=False)
         else:
             if seg is None:
                 s = None
             else:
                 s = seg[sample_id:sample_id + 1]
+            if heatmap is None:
+                h = None
+            else:
+                h = heatmap[sample_id:sample_id + 1]
             if random_crop:
                 margin = [patch_center_dist_from_border[d] - patch_size[d] // 2 for d in range(dim)]
-                d, s = random_crop_aug(data[sample_id:sample_id + 1], s, patch_size, margin)
+                d, s, h = random_crop_aug(data[sample_id:sample_id + 1], s, h, patch_size, margin)
             else:
-                d, s = center_crop_aug(data[sample_id:sample_id + 1], patch_size, s)
+                d, s, h = center_crop_aug(data[sample_id:sample_id + 1], patch_size, s, h)
             data_result[sample_id] = d[0]
             if seg is not None:
                 seg_result[sample_id] = s[0]
-    return data_result, seg_result
+            if heatmap is not None:
+                heatmap_result[sample_id] = h[0]
+    return data_result, seg_result, heatmap_result
 
 
 def augment_transpose_axes(data_sample, seg_sample, axes=(0, 1, 2)):

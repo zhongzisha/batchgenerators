@@ -191,9 +191,11 @@ class MirrorTransform(AbstractTransform):
 
     """
 
-    def __init__(self, axes=(0, 1, 2), data_key="data", label_key="seg"):
+    def __init__(self, axes=(0, 1, 2), data_key="data", label_key="seg",
+                 heatmap_key="heatmap"):
         self.data_key = data_key
         self.label_key = label_key
+        self.heatmap_key = heatmap_key
         self.axes = axes
         if max(axes) > 2:
             raise ValueError("MirrorTransform now takes the axes as the spatial dimensions. What previously was "
@@ -203,19 +205,27 @@ class MirrorTransform(AbstractTransform):
     def __call__(self, **data_dict):
         data = data_dict.get(self.data_key)
         seg = data_dict.get(self.label_key)
+        heatmap = data_dict.get(self.heatmap_key)
 
         for b in range(len(data)):
             sample_seg = None
             if seg is not None:
                 sample_seg = seg[b]
-            ret_val = augment_mirroring(data[b], sample_seg, axes=self.axes)
+            sample_heatmap = None
+            if heatmap is not None:
+                sample_heatmap = heatmap[b]
+            ret_val = augment_mirroring(data[b], sample_seg, sample_heatmap, axes=self.axes)
             data[b] = ret_val[0]
             if seg is not None:
                 seg[b] = ret_val[1]
+            if heatmap is not None:
+                heatmap[b] = ret_val[2]
 
         data_dict[self.data_key] = data
         if seg is not None:
             data_dict[self.label_key] = seg
+        if heatmap is not None:
+            data_dict[self.heatmap_key] = heatmap
 
         return data_dict
 
@@ -300,7 +310,7 @@ class SpatialTransform(AbstractTransform):
                  do_rotation=True, angle_x=(0, 2 * np.pi), angle_y=(0, 2 * np.pi), angle_z=(0, 2 * np.pi),
                  do_scale=True, scale=(0.75, 1.25), border_mode_data='nearest', border_cval_data=0, order_data=3,
                  border_mode_seg='constant', border_cval_seg=0, order_seg=0, random_crop=True, data_key="data",
-                 label_key="seg", p_el_per_sample=1, p_scale_per_sample=1, p_rot_per_sample=1,
+                 label_key="seg", heatmap_key="heatmap", p_el_per_sample=1, p_scale_per_sample=1, p_rot_per_sample=1,
                  independent_scale_for_each_axis=False, p_rot_per_axis:float=1, p_independent_scale_per_axis: int=1):
         self.independent_scale_for_each_axis = independent_scale_for_each_axis
         self.p_rot_per_sample = p_rot_per_sample
@@ -308,6 +318,7 @@ class SpatialTransform(AbstractTransform):
         self.p_el_per_sample = p_el_per_sample
         self.data_key = data_key
         self.label_key = label_key
+        self.heatmap_key = heatmap_key
         self.patch_size = patch_size
         self.patch_center_dist_from_border = patch_center_dist_from_border
         self.do_elastic_deform = do_elastic_deform
@@ -332,6 +343,7 @@ class SpatialTransform(AbstractTransform):
     def __call__(self, **data_dict):
         data = data_dict.get(self.data_key)
         seg = data_dict.get(self.label_key)
+        heatmap = data_dict.get(self.heatmap_key)
 
         if self.patch_size is None:
             if len(data.shape) == 4:
@@ -343,7 +355,7 @@ class SpatialTransform(AbstractTransform):
         else:
             patch_size = self.patch_size
 
-        ret_val = augment_spatial(data, seg, patch_size=patch_size,
+        ret_val = augment_spatial(data, seg, heatmap, patch_size=patch_size,
                                   patch_center_dist_from_border=self.patch_center_dist_from_border,
                                   do_elastic_deform=self.do_elastic_deform, alpha=self.alpha, sigma=self.sigma,
                                   do_rotation=self.do_rotation, angle_x=self.angle_x, angle_y=self.angle_y,
@@ -360,6 +372,8 @@ class SpatialTransform(AbstractTransform):
         data_dict[self.data_key] = ret_val[0]
         if seg is not None:
             data_dict[self.label_key] = ret_val[1]
+        if heatmap is not None:
+            data_dict[self.heatmap_key] = ret_val[2]
 
         return data_dict
 

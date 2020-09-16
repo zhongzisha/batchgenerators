@@ -29,9 +29,10 @@ class RangeTransform(AbstractTransform):
 
     '''
 
-    def __init__(self, rnge=(0, 1), per_channel=True, data_key="data", label_key="seg"):
+    def __init__(self, rnge=(0, 1), per_channel=True, data_key="data", label_key="seg", heatmap_key="heatmap"):
         self.data_key = data_key
         self.label_key = label_key
+        self.heatmap_key = heatmap_key
         self.per_channel = per_channel
         self.rnge = rnge
 
@@ -53,9 +54,10 @@ class CutOffOutliersTransform(AbstractTransform):
     """
 
     def __init__(self, percentile_lower=0.2, percentile_upper=99.8, per_channel=False, data_key="data",
-                 label_key="seg"):
+                 label_key="seg", heatmap_key="heatmap"):
         self.data_key = data_key
         self.label_key = label_key
+        self.heatmap_key = heatmap_key
         self.per_channel = per_channel
         self.percentile_upper = percentile_upper
         self.percentile_lower = percentile_lower
@@ -77,9 +79,10 @@ class ZeroMeanUnitVarianceTransform(AbstractTransform):
         epsilon (float): prevent nan if std is zero, keep at 1e-7
     """
 
-    def __init__(self, per_channel=True, epsilon=1e-7, data_key="data", label_key="seg"):
+    def __init__(self, per_channel=True, epsilon=1e-7, data_key="data", label_key="seg", heatmap_key="heatmap"):
         self.data_key = data_key
         self.label_key = label_key
+        self.heatmap_key = heatmap_key
         self.epsilon = epsilon
         self.per_channel = per_channel
 
@@ -99,9 +102,10 @@ class MeanStdNormalizationTransform(AbstractTransform):
         epsilon (float): prevent nan if std is zero, keep at 1e-7
     """
 
-    def __init__(self, mean, std, per_channel=True, data_key="data", label_key="seg"):
+    def __init__(self, mean, std, per_channel=True, data_key="data", label_key="seg", heatmap_key="heatmap"):
         self.data_key = data_key
         self.label_key = label_key
+        self.heatmap_key = heatmap_key
         self.std = std
         self.mean = mean
         self.per_channel = per_channel

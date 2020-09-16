@@ -52,10 +52,11 @@ class GaussianNoiseTransform(AbstractTransform):
     CAREFUL: This transform will modify the value range of your data!
     """
 
-    def __init__(self, noise_variance=(0, 0.1), data_key="data", label_key="seg", p_per_sample=1):
+    def __init__(self, noise_variance=(0, 0.1), data_key="data", label_key="seg", heatmap_key="heatmap", p_per_sample=1):
         self.p_per_sample = p_per_sample
         self.data_key = data_key
         self.label_key = label_key
+        self.heatmap_key = heatmap_key
         self.noise_variance = noise_variance
 
     def __call__(self, **data_dict):
@@ -66,13 +67,15 @@ class GaussianNoiseTransform(AbstractTransform):
 
 
 class GaussianBlurTransform(AbstractTransform):
-    def __init__(self, blur_sigma=(1, 5), data_key="data", label_key="seg", different_sigma_per_channel=True,
+    def __init__(self, blur_sigma=(1, 5), data_key="data", label_key="seg", heatmap_key="heatmap",
+                 different_sigma_per_channel=True,
                  p_per_channel=1, p_per_sample=1):
         """
 
         :param blur_sigma:
         :param data_key:
         :param label_key:
+        :param heatmap_key:
         :param different_sigma_per_channel: whether to sample a sigma for each channel or all channels at once
         :param p_per_channel: probability of applying gaussian blur for each channel. Default = 1 (all channels are
         blurred with prob 1)
@@ -82,6 +85,7 @@ class GaussianBlurTransform(AbstractTransform):
         self.p_per_channel = p_per_channel
         self.data_key = data_key
         self.label_key = label_key
+        self.heatmap_key = heatmap_key
         self.blur_sigma = blur_sigma
 
     def __call__(self, **data_dict):
@@ -94,11 +98,12 @@ class GaussianBlurTransform(AbstractTransform):
 
 class BlankSquareNoiseTransform(AbstractTransform):
     def __init__(self, squre_size=20, n_squres=1, noise_val=(0, 0), channel_wise_n_val=False, square_pos=None,
-                 data_key="data", label_key="seg", p_per_sample=1):
+                 data_key="data", label_key="seg", heatmap_key="heatmap", p_per_sample=1):
 
         self.p_per_sample = p_per_sample
         self.data_key = data_key
         self.label_key = label_key
+        self.heatmap_key = heatmap_key
         self.noise_val = noise_val
         self.n_squres = n_squres
         self.squre_size = squre_size

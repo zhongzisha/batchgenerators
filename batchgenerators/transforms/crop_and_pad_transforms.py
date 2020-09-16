@@ -25,19 +25,23 @@ class CenterCropTransform(AbstractTransform):
 
     """
 
-    def __init__(self, crop_size, data_key="data", label_key="seg"):
+    def __init__(self, crop_size, data_key="data", label_key="seg", heatmap_key="heatmap"):
         self.data_key = data_key
         self.label_key = label_key
+        self.heatmap_key = heatmap_key
         self.crop_size = crop_size
 
     def __call__(self, **data_dict):
         data = data_dict.get(self.data_key)
         seg = data_dict.get(self.label_key)
-        data, seg = center_crop(data, self.crop_size, seg)
+        heatmap = data_dict.get(self.heatmap_key)
+        data, seg, heatmap = center_crop(data, self.crop_size, seg, heatmap)
 
         data_dict[self.data_key] = data
         if seg is not None:
             data_dict[self.label_key] = seg
+        if heatmap is not None:
+            data_dict[self.heatmap_key] = heatmap
 
         return data_dict
 
@@ -67,6 +71,32 @@ class CenterCropSegTransform(AbstractTransform):
         return data_dict
 
 
+class CenterCropHeatmapTransform(AbstractTransform):
+    """ Crops seg in the center (required if you are using unpadded convolutions in a segmentation network).
+    Leaves data as it is
+
+    Args:
+        output_size (int or tuple of int): Output patch size
+
+    """
+
+    def __init__(self, output_size, data_key="data", label_key="seg", heatmap_key="heatmap"):
+        self.data_key = data_key
+        self.label_key = label_key
+        self.heatmap_key = heatmap_key
+        self.output_size = output_size
+
+    def __call__(self, **data_dict):
+        heatmap = data_dict.get(self.heatmap_key)
+
+        if heatmap is not None:
+            data_dict[self.heatmap_key] = center_crop(heatmap, self.output_size, None, None)[0]
+        else:
+            from warnings import warn
+            warn("You shall not pass data_dict without heatmap: Used CenterCropHeatmapTransform, but there is no heatmap", Warning)
+        return data_dict
+
+
 class RandomCropTransform(AbstractTransform):
     """ Randomly crops data and seg (if available)
 
@@ -77,21 +107,25 @@ class RandomCropTransform(AbstractTransform):
 
     """
 
-    def __init__(self, crop_size=128, margins=(0, 0, 0), data_key="data", label_key="seg"):
+    def __init__(self, crop_size=128, margins=(0, 0, 0), data_key="data", label_key="seg", heatmap_key="heatmap"):
         self.data_key = data_key
         self.label_key = label_key
+        self.heatmap_key = heatmap_key
         self.margins = margins
         self.crop_size = crop_size
 
     def __call__(self, **data_dict):
         data = data_dict.get(self.data_key)
         seg = data_dict.get(self.label_key)
+        heatmap = data_dict.get(self.heatmap_key)
 
-        data, seg = random_crop(data, seg, self.crop_size, self.margins)
+        data, seg, heatmap = random_crop(data, seg, heatmap, self.crop_size, self.margins)
 
         data_dict[self.data_key] = data
         if seg is not None:
             data_dict[self.label_key] = seg
+        if heatmap is not None:
+            data_dict[self.heatmap_key] = heatmap
 
         return data_dict
 
@@ -99,7 +133,7 @@ class RandomCropTransform(AbstractTransform):
 class PadTransform(AbstractTransform):
     def __init__(self, new_size, pad_mode_data='constant', pad_mode_seg='constant',
                  np_pad_kwargs_data=None, np_pad_kwargs_seg=None,
-                 data_key="data", label_key="seg"):
+                 data_key="data", label_key="seg", heatmap_key="heatmap"):
         """
         Pads data and seg to new_size. Only supports numpy arrays for data and seg.
 
@@ -111,6 +145,7 @@ class PadTransform(AbstractTransform):
         """
         self.data_key = data_key
         self.label_key = label_key
+        self.heatmap_key = heatmap_key
         self.new_size = new_size
         self.pad_mode_data = pad_mode_data
         self.pad_mode_seg = pad_mode_seg
@@ -126,18 +161,21 @@ class PadTransform(AbstractTransform):
     def __call__(self, **data_dict):
         data = data_dict.get(self.data_key)
         seg = data_dict.get(self.label_key)
+        heatmap = data_dict.get(self.heatmap_key)
 
         assert len(self.new_size) + 2 == len(data.shape), "new size must be a tuple/list/np.ndarray with shape " \
                                                     "(x, y(, z))"
-        data, seg = pad_nd_image_and_seg(data, seg, self.new_size, None,
-                                         np_pad_kwargs_data=self.np_pad_kwargs_data,
-                                         np_pad_kwargs_seg=self.np_pad_kwargs_seg,
-                                         pad_mode_data=self.pad_mode_data,
-                                         pad_mode_seg=self.pad_mode_seg)
+        data, seg, heatmap = pad_nd_image_and_seg(data, seg, heatmap, self.new_size, None,
+                                                  np_pad_kwargs_data=self.np_pad_kwargs_data,
+                                                  np_pad_kwargs_seg=self.np_pad_kwargs_seg,
+                                                  pad_mode_data=self.pad_mode_data,
+                                                  pad_mode_seg=self.pad_mode_seg)
 
         data_dict[self.data_key] = data
         if seg is not None:
             data_dict[self.label_key] = seg
+        if heatmap is not None:
+            data_dict[self.heatmap_key] = heatmap
 
         return data_dict
 

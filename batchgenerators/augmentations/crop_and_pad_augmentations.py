@@ -17,8 +17,8 @@ import numpy as np
 from batchgenerators.augmentations.utils import pad_nd_image
 
 
-def center_crop(data, crop_size, seg=None):
-    return crop(data, seg, crop_size, 0, 'center')
+def center_crop(data, crop_size, seg=None, heatmap=None):
+    return crop(data, seg, heatmap, crop_size, 0, 'center')
 
 
 def get_lbs_for_random_crop(crop_size, data_shape, margins):
@@ -50,7 +50,7 @@ def get_lbs_for_center_crop(crop_size, data_shape):
     return lbs
 
 
-def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
+def crop(data, seg=None, heatmap=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
          pad_mode='constant', pad_kwargs={'constant_values': 0},
          pad_mode_seg='constant', pad_kwargs_seg={'constant_values': 0}):
     """
@@ -62,6 +62,7 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
 
     :param data: b, c, x, y(, z)
     :param seg:
+    :param heatmap:
     :param crop_size:
     :param margins: distance from each border, can be int or list/tuple of ints (one element for each dimension).
     Can be negative (data/seg will be padded if needed)
@@ -85,7 +86,16 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
         assert all([i == j for i, j in zip(seg_shape[2:], data_shape[2:])]), "data and seg must have the same spatial " \
                                                                              "dimensions. Data: %s, seg: %s" % \
                                                                              (str(data_shape), str(seg_shape))
+    if heatmap is not None:
+        heatmap_shape = tuple([len(heatmap)] + list(heatmap[0].shape))
+        heatmap_dtype = heatmap[0].dtype
 
+        if not isinstance(heatmap, (list, tuple, np.ndarray)):
+            raise TypeError("data has to be either a numpy array or a list")
+
+        assert all([i == j for i, j in zip(heatmap_shape[2:], data_shape[2:])]), "data and heatmap must have the same spatial " \
+                                                                             "dimensions. Data: %s, seg: %s" % \
+                                                                             (str(data_shape), str(heatmap_shape))
     if type(crop_size) not in (tuple, list, np.ndarray):
         crop_size = [crop_size] * dim
     else:
@@ -101,11 +111,17 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
         seg_return = np.zeros([seg_shape[0], seg_shape[1]] + list(crop_size), dtype=seg_dtype)
     else:
         seg_return = None
+    if heatmap is not None:
+        heatmap_return = np.zeros([heatmap_shape[0], heatmap_shape[1]] + list(crop_size), dtype=heatmap_dtype)
+    else:
+        heatmap_return = None
 
     for b in range(data_shape[0]):
         data_shape_here = [data_shape[0]] + list(data[b].shape)
         if seg is not None:
             seg_shape_here = [seg_shape[0]] + list(seg[b].shape)
+        if heatmap is not None:
+            heatmap_shape_here = [heatmap_shape[0]] + list(heatmap[b].shape)
 
         if crop_type == "center":
             lbs = get_lbs_for_center_crop(crop_size, data_shape_here)
@@ -128,30 +144,39 @@ def crop(data, seg=None, crop_size=128, margins=(0, 0, 0), crop_type="center",
         if seg_return is not None:
             slicer_seg = [slice(0, seg_shape_here[1])] + [slice(lbs[d], ubs[d]) for d in range(dim)]
             seg_cropped = seg[b][tuple(slicer_seg)]
+        if heatmap_return is not None:
+            slicer_heatmap = [slice(0, heatmap_shape_here[1])] + [slice(lbs[d], ubs[d]) for d in range(dim)]
+            heatmap_cropped = heatmap[b][tuple(slicer_heatmap)]
 
         if any([i > 0 for j in need_to_pad for i in j]):
             data_return[b] = np.pad(data_cropped, need_to_pad, pad_mode, **pad_kwargs)
             if seg_return is not None:
                 seg_return[b] = np.pad(seg_cropped, need_to_pad, pad_mode_seg, **pad_kwargs_seg)
+            if heatmap_return is not None:
+                heatmap_return[b] = np.pad(heatmap_cropped, need_to_pad, pad_mode_seg, **pad_kwargs_seg)
         else:
             data_return[b] = data_cropped
             if seg_return is not None:
                 seg_return[b] = seg_cropped
+            if heatmap_return is not None:
+                heatmap_return[b] = heatmap_cropped
 
-    return data_return, seg_return
-
-
-def random_crop(data, seg=None, crop_size=128, margins=[0, 0, 0]):
-    return crop(data, seg, crop_size, margins, 'random')
+    return data_return, seg_return, heatmap_return
 
 
-def pad_nd_image_and_seg(data, seg, new_shape=None, must_be_divisible_by=None, pad_mode_data='constant',
-                         np_pad_kwargs_data=None, pad_mode_seg='constant', np_pad_kwargs_seg=None):
+def random_crop(data, seg=None, heatmap=None, crop_size=128, margins=[0, 0, 0]):
+    return crop(data, seg, heatmap, crop_size, margins, 'random')
+
+
+def pad_nd_image_and_seg(data, seg, heatmap, new_shape=None, must_be_divisible_by=None, pad_mode_data='constant',
+                         np_pad_kwargs_data=None, pad_mode_seg='constant', np_pad_kwargs_seg=None,
+                         pad_mode_heatmap='constant', np_pad_kwargs_heatmap=None):
     """
     Pads data and seg to new_shape. new_shape is thereby understood as min_shape (if data/seg is already larger then
     new_shape the shape stays the same for the dimensions this applies)
     :param data:
     :param seg:
+    :param heatmap:
     :param new_shape: if none then only must_be_divisible_by is applied
     :param must_be_divisible_by: UNet like architectures sometimes require the input to be divisibly by some number. This
     will modify new_shape if new_shape is not divisibly by this (by increasing it accordingly).
@@ -170,4 +195,9 @@ def pad_nd_image_and_seg(data, seg, new_shape=None, must_be_divisible_by=None, p
                                   return_slicer=False, shape_must_be_divisible_by=must_be_divisible_by)
     else:
         sample_seg = None
-    return sample_data, sample_seg
+    if heatmap is not None:
+        sample_heatmap = pad_nd_image(heatmap, new_shape, mode=pad_mode_heatmap, kwargs=np_pad_kwargs_heatmap,
+                                      return_slicer=False, shape_must_be_divisible_by=must_be_divisible_by)
+    else:
+        sample_heatmap = None
+    return sample_data, sample_seg, sample_heatmap
