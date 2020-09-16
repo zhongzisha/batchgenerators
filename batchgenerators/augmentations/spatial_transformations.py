@@ -298,7 +298,7 @@ def augment_spatial(data, seg, heatmap, patch_size, patch_center_dist_from_borde
                 for channel_id in range(heatmap.shape[1]):
                     heatmap_result[sample_id, channel_id] = interpolate_img(heatmap[sample_id, channel_id],
                                                                             coords, order_seg,
-                                                                            border_mode_seg, cval=border_cval_seg,
+                                                                            'constant', cval=0,
                                                                             is_seg=False)
         else:
             if seg is None:
@@ -485,7 +485,7 @@ def augment_spatial_2(data, seg, heatmap, patch_size, patch_center_dist_from_bor
             if heatmap is not None:
                 for channel_id in range(heatmap.shape[1]):
                     heatmap_result[sample_id, channel_id] = interpolate_img(heatmap[sample_id, channel_id], coords, order_seg,
-                                                                        border_mode_seg, cval=border_cval_seg,
+                                                                        'constant', cval=0,
                                                                         is_seg=False)
         else:
             if seg is None:
